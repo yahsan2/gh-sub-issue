@@ -271,7 +271,7 @@ func createSubIssue(client *api.GraphQLClient, input map[string]interface{}) (in
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	_ = context.Background() // Reserved for future use
 	
 	// Get default repository
 	var defaultOwner, defaultRepo string
@@ -387,6 +387,5 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Success message
 	fmt.Fprintf(cmd.OutOrStdout(), "✓ Created sub-issue #%d: %s\n", number, url)
 	
-	_ = ctx
 	return nil
 }
