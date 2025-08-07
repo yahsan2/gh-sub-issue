@@ -11,6 +11,7 @@ A GitHub CLI extension for managing sub-issues (child issues). Create hierarchic
 - 🔗 **Link existing issues** - Connect existing issues as sub-issues to a parent issue
 - ➕ **Create sub-issues** - Create new issues directly linked to a parent
 - 📋 **List sub-issues** - View all sub-issues connected to a parent issue
+- ❌ **Remove sub-issues** - Unlink sub-issues from their parent without deleting them
 - 🎨 **Multiple output formats** - Support for TTY (colored), plain text, and JSON output
 - 🔄 **Cross-repository support** - Work with issues across different repositories
 
@@ -89,6 +90,27 @@ gh sub-issue list 123 --json
 gh sub-issue list https://github.com/owner/repo/issues/123
 ```
 
+### Remove sub-issues
+
+Unlink sub-issues from a parent issue:
+
+```bash
+# Remove a single sub-issue
+gh sub-issue remove 123 456
+
+# Remove multiple sub-issues
+gh sub-issue remove 123 456 457 458
+
+# Skip confirmation prompt
+gh sub-issue remove 123 456 --force
+
+# Using URLs
+gh sub-issue remove https://github.com/owner/repo/issues/123 456
+
+# Cross-repository
+gh sub-issue remove 123 456 --repo owner/repo
+```
+
 ## 📋 Command Reference
 
 ### `gh sub-issue add`
@@ -148,6 +170,24 @@ Flags:
   -h, --help      Show help for command
 ```
 
+### `gh sub-issue remove`
+
+Remove sub-issues from a parent issue.
+
+```
+Usage:
+  gh sub-issue remove <parent-issue> <sub-issue> [sub-issue...] [flags]
+
+Arguments:
+  parent-issue    Parent issue number or URL
+  sub-issue       Sub-issue number(s) or URL(s) to remove
+
+Flags:
+  -f, --force     Skip confirmation prompt
+  -R, --repo      Repository in OWNER/REPO format
+  -h, --help      Show help for command
+```
+
 ## 🎯 Examples
 
 ### Real-world workflow
@@ -167,6 +207,9 @@ gh sub-issue add 100 95  # Add existing issue #95 as sub-issue
 
 # 4. View progress
 gh sub-issue list 100 --state all
+
+# 5. Remove a sub-issue if needed
+gh sub-issue remove 100 95  # Unlink issue #95 from parent
 ```
 
 ### Output example
