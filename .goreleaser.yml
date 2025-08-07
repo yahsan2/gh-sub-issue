@@ -28,7 +28,9 @@ builds:
 archives:
   - format: binary
     name_template: >-
-      {{ .Os }}-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}-
       {{- if eq .Arch "amd64" }}amd64
       {{- else if eq .Arch "386" }}386
       {{- else }}{{ .Arch }}{{ end }}
