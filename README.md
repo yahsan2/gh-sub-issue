@@ -28,12 +28,6 @@ To update the extension to the latest version:
 gh extension upgrade sub-issue
 ```
 
-Or to update all extensions at once:
-
-```bash
-gh extension upgrade --all
-```
-
 ### Requirements
 
 - [GitHub CLI](https://cli.github.com/) 2.0.0 or later
