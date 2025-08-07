@@ -186,11 +186,15 @@ func removeSubIssue(client *api.GraphQLClient, parentID, subIssueID string) erro
 	// GraphQL mutation to remove sub-issue relationship
 	mutation := `
 		mutation RemoveSubIssue($parentId: ID!, $subIssueId: ID!) {
-			removeSubIssue: updateIssue(input: {
-				id: $parentId,
-				removeSubIssueIds: [$subIssueId]
+			removeSubIssue(input: {
+				issueId: $parentId,
+				subIssueId: $subIssueId
 			}) {
 				issue {
+					number
+					title
+				}
+				subIssue {
 					number
 					title
 				}
@@ -198,13 +202,17 @@ func removeSubIssue(client *api.GraphQLClient, parentID, subIssueID string) erro
 		}`
 
 	variables := map[string]interface{}{
-		"parentId":    parentID,
+		"parentId":   parentID,
 		"subIssueId": subIssueID,
 	}
 
 	var result struct {
 		RemoveSubIssue struct {
 			Issue struct {
+				Number int
+				Title  string
+			}
+			SubIssue struct {
 				Number int
 				Title  string
 			}
