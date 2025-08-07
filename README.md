@@ -20,6 +20,20 @@ A GitHub CLI extension for managing sub-issues (child issues). Create hierarchic
 gh extension install yahsan2/gh-sub-issue
 ```
 
+### Update
+
+To update the extension to the latest version:
+
+```bash
+gh extension upgrade sub-issue
+```
+
+Or to update all extensions at once:
+
+```bash
+gh extension upgrade --all
+```
+
 ### Requirements
 
 - [GitHub CLI](https://cli.github.com/) 2.0.0 or later
