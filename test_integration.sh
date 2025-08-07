@@ -75,6 +75,7 @@ echo "=== Basic Command Tests ==="
 run_test "Help command" "./gh-sub-issue --help" "A GitHub CLI extension that adds sub-issue management"
 run_test "Add help" "./gh-sub-issue add --help" "Link an existing issue to a parent issue"
 run_test "List help" "./gh-sub-issue list --help" "List all sub-issues connected to a parent issue"
+run_test "Remove help" "./gh-sub-issue remove --help" "Remove the relationship between sub-issues"
 
 # Test 2: Version
 run_test "Version" "./gh-sub-issue --version" "version"
@@ -101,6 +102,19 @@ run_test "List missing arguments" "./gh-sub-issue list" "ERROR:accepts 1 arg(s),
 run_test "List too many arguments" "./gh-sub-issue list 1 2" "ERROR:accepts 1 arg(s), received 2"
 run_test "List invalid issue number" "./gh-sub-issue list abc --repo test/repo" "ERROR:invalid issue reference"
 run_test "List invalid repo format" "./gh-sub-issue list 1 --repo invalid-format" "ERROR:invalid repository format"
+
+# Test 6: Remove command tests
+echo ""
+echo "=== Remove Command Tests ==="
+run_test "Remove missing arguments" "./gh-sub-issue remove" "ERROR:at least 2 arg(s)"
+run_test "Remove single argument" "./gh-sub-issue remove 123" "ERROR:at least 2 arg(s)"
+run_test "Remove invalid parent" "./gh-sub-issue remove abc 456 --repo test/repo" "ERROR:invalid parent issue"
+run_test "Remove invalid sub-issue" "./gh-sub-issue remove 123 xyz --repo test/repo" "ERROR:invalid sub-issue"
+run_test "Remove invalid repo format" "./gh-sub-issue remove 123 456 --repo invalid-format" "ERROR:invalid repository format"
+run_test "Remove with force flag" "./gh-sub-issue remove 123 456 --force --repo test/repo" "ERROR:" # Will fail with API error but args are valid
+run_test "Remove multiple sub-issues" "./gh-sub-issue remove 123 456 457 458 --repo test/repo --force" "ERROR:" # Will fail with API error but args are valid
+run_test "Remove with URL parent" "./gh-sub-issue remove https://github.com/owner/repo/issues/123 456 --repo test/repo" ""
+run_test "Remove with URL sub-issue" "./gh-sub-issue remove 123 https://github.com/owner/repo/issues/456 --repo test/repo" ""
 
 # Summary
 echo ""
