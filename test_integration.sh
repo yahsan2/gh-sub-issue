@@ -113,8 +113,8 @@ run_test "Remove invalid sub-issue" "./gh-sub-issue remove 123 xyz --repo test/r
 run_test "Remove invalid repo format" "./gh-sub-issue remove 123 456 --repo invalid-format" "ERROR:invalid repository format"
 run_test "Remove with force flag" "./gh-sub-issue remove 123 456 --force --repo test/repo" "ERROR:" # Will fail with API error but args are valid
 run_test "Remove multiple sub-issues" "./gh-sub-issue remove 123 456 457 458 --repo test/repo --force" "ERROR:" # Will fail with API error but args are valid
-run_test "Remove with URL parent" "./gh-sub-issue remove https://github.com/owner/repo/issues/123 456 --repo test/repo" ""
-run_test "Remove with URL sub-issue" "./gh-sub-issue remove 123 https://github.com/owner/repo/issues/456 --repo test/repo" ""
+run_test "Remove with URL parent" "./gh-sub-issue remove https://github.com/owner/repo/issues/123 456 --repo test/repo --force" "ERROR:" # Will fail with API error but args are valid
+run_test "Remove with URL sub-issue" "./gh-sub-issue remove 123 https://github.com/owner/repo/issues/456 --repo test/repo --force" "ERROR:" # Will fail with API error but args are valid
 
 # Summary
 echo ""
