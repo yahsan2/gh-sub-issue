@@ -31,7 +31,7 @@ gh extension upgrade sub-issue
 
 ### Requirements
 
-- [GitHub CLI](https://cli.github.com/) 2.0.0 or later
+- [GitHub CLI](https://github.com/cli/cli) 2.0.0 or later
 - GitHub account with appropriate repository permissions
 
 ## 🚀 Usage
@@ -312,14 +312,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Built with [GitHub CLI](https://cli.github.com/)
+- Built with [GitHub CLI](https://github.com/cli/cli)
 - Inspired by the need for better hierarchical task management in GitHub
 - Thanks to all contributors and users
 
 ## 🔗 Related Projects
 
 - [GitHub CLI](https://github.com/cli/cli) - The official GitHub command-line tool
-- [gh-project](https://github.com/github/gh-project) - Work with GitHub Projects from the command line
 
 ## 📮 Support
 
