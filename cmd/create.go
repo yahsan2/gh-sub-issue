@@ -16,7 +16,7 @@ var (
 	labelsFlag     []string
 	assigneesFlag  []string
 	milestoneFlag  string
-	projectFlag    string
+	projectsFlag   []string  // Changed to support multiple projects
 	createRepoFlag string
 )
 
@@ -27,32 +27,39 @@ var createCmd = &cobra.Command{
 
 Examples:
   # Create with minimal options
-  gh sub-issue create --parent 123 --title "Implement feature X"
+  gh sub-issue create -P 123 -t "Implement feature X"
   
   # Create with body text
-  gh sub-issue create --parent 123 --title "Bug fix" --body "Description of the issue"
+  gh sub-issue create -P 123 -t "Bug fix" -b "Description of the issue"
   
   # Create with labels and assignees
-  gh sub-issue create --parent 123 --title "Task" --label bug --label priority --assignee username
+  gh sub-issue create -P 123 -t "Task" -l bug -l priority -a username
+  
+  # Add to single project (GitHub CLI compatible)
+  gh sub-issue create -P 123 -t "Task" -p "Roadmap"
+  
+  # Add to multiple projects
+  gh sub-issue create -P 123 -t "Task" -p "Dev Sprint" -p "Q1 Goals"
   
   # Cross-repository parent issue
-  gh sub-issue create --parent https://github.com/owner/repo/issues/123 --title "Sub-task"
+  gh sub-issue create -P https://github.com/owner/repo/issues/123 -t "Sub-task"
   
   # Specify repository for new issue
-  gh sub-issue create --parent 123 --title "Task" --repo owner/repo`,
+  gh sub-issue create -P 123 -t "Task" -R owner/repo`,
 	RunE: runCreate,
 }
 
 func init() {
 	rootCmd.AddCommand(createCmd)
 	
-	createCmd.Flags().StringVarP(&parentFlag, "parent", "p", "", "Parent issue number or URL (required)")
+	// GitHub CLI compatible flags: -P for parent, -p for project
+	createCmd.Flags().StringVarP(&parentFlag, "parent", "P", "", "Parent issue number or URL (required)")
 	createCmd.Flags().StringVarP(&titleFlag, "title", "t", "", "Title for the new sub-issue (required)")
 	createCmd.Flags().StringVarP(&bodyFlag, "body", "b", "", "Body text for the new sub-issue")
 	createCmd.Flags().StringSliceVarP(&labelsFlag, "label", "l", []string{}, "Add labels to the issue")
 	createCmd.Flags().StringSliceVarP(&assigneesFlag, "assignee", "a", []string{}, "Assign users to the issue")
 	createCmd.Flags().StringVarP(&milestoneFlag, "milestone", "m", "", "Set milestone for the issue")
-	createCmd.Flags().StringVar(&projectFlag, "project", "", "Add issue to project")
+	createCmd.Flags().StringSliceVarP(&projectsFlag, "project", "p", []string{}, "Add issue to projects (can specify multiple times)")
 	createCmd.Flags().StringVarP(&createRepoFlag, "repo", "R", "", "Repository for the new issue in OWNER/REPO format")
 	
 	createCmd.MarkFlagRequired("parent")
@@ -580,16 +587,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 	
-	// Get project ID if specified
-	var projectV2ID string
-	if projectFlag != "" {
-		fmt.Fprintf(cmd.OutOrStderr(), "Getting project ID...\n")
-		projectV2ID, err = getProjectV2ID(client, defaultOwner, defaultRepo, projectFlag)
-		if err != nil {
-			return err
+	// Get project IDs if specified (supports multiple projects)
+	var projectV2IDs []string
+	if len(projectsFlag) > 0 {
+		fmt.Fprintf(cmd.OutOrStderr(), "Getting project IDs...\n")
+		for _, project := range projectsFlag {
+			projectID, err := getProjectV2ID(client, defaultOwner, defaultRepo, project)
+			if err != nil {
+				return err
+			}
+			if projectID != "" {
+				projectV2IDs = append(projectV2IDs, projectID)
+			}
 		}
 		// Note: projectIds field is for classic projects and won't work with ProjectsV2
-		// We'll need to add the issue to the project after creation
+		// We'll need to add the issue to the projects after creation
 	}
 	
 	// Create the sub-issue
@@ -603,12 +615,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	
-	// Add issue to ProjectV2 if specified
-	if projectV2ID != "" {
-		fmt.Fprintf(cmd.OutOrStderr(), "Adding issue to project...\n")
-		err = addIssueToProjectV2(client, number, defaultOwner, defaultRepo, projectV2ID)
-		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to add issue to project: %v\n", err)
+	// Add issue to ProjectsV2 if specified (supports multiple projects)
+	if len(projectV2IDs) > 0 {
+		fmt.Fprintf(cmd.OutOrStderr(), "Adding issue to projects...\n")
+		for i, projectID := range projectV2IDs {
+			err = addIssueToProjectV2(client, number, defaultOwner, defaultRepo, projectID)
+			if err != nil {
+				fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to add issue to project %s: %v\n", projectsFlag[i], err)
+			}
 		}
 	}
 	

@@ -56,26 +56,31 @@ gh sub-issue add 123 456 --repo owner/repo
 Create a new issue directly linked to a parent:
 
 ```bash
-# Basic usage
-gh sub-issue create --parent 123 --title "Implement user authentication"
+# Basic usage (GitHub CLI compatible flags)
+gh sub-issue create -P 123 -t "Implement user authentication"
 
 # With description and labels
-gh sub-issue create --parent 123 \
-  --title "Add login endpoint" \
-  --body "Implement POST /api/login endpoint" \
-  --label "backend,api" \
-  --assignee "@me"
+gh sub-issue create -P 123 \
+  -t "Add login endpoint" \
+  -b "Implement POST /api/login endpoint" \
+  -l "backend" -l "api" \
+  -a "@me"
 
-# With project assignment
-gh sub-issue create --parent 123 \
-  --title "QA Testing Task" \
-  --project "QA Sprint" \
-  --assignee "qa-team"
+# With project assignment (GitHub CLI compatible)
+gh sub-issue create -P 123 \
+  -t "QA Testing Task" \
+  -p "QA Sprint" \
+  -a "qa-team"
+
+# Multiple projects (like gh issue create)
+gh sub-issue create -P 123 \
+  -t "Cross-functional task" \
+  -p "Dev Sprint" -p "QA Board" -p "Q1 Goals"
 
 # Using parent issue URL
 gh sub-issue create \
-  --parent https://github.com/owner/repo/issues/123 \
-  --title "Write API tests"
+  -P https://github.com/owner/repo/issues/123 \
+  -t "Write API tests"
 ```
 
 ### List sub-issues
@@ -145,13 +150,13 @@ Usage:
   gh sub-issue create [flags]
 
 Flags:
-  -p, --parent       Parent issue number or URL (required)
+  -P, --parent       Parent issue number or URL (required)
   -t, --title        Title for the new sub-issue (required)
   -b, --body         Body text for the sub-issue
-  -l, --label        Comma-separated labels to add
-  -a, --assignee     Comma-separated usernames to assign
+  -l, --label        Labels to add (can specify multiple)
+  -a, --assignee     Usernames to assign (can specify multiple)
   -m, --milestone    Milestone name or number
-      --project      Project name or number
+  -p, --project      Projects to add (can specify multiple, GitHub CLI compatible)
   -R, --repo         Repository in OWNER/REPO format
   -h, --help         Show help for command
 ```

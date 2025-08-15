@@ -16,7 +16,7 @@ func TestCreateCmdFlags(t *testing.T) {
 			name:      "parent flag",
 			flagName:  "parent",
 			required:  true,
-			shorthand: "p",
+			shorthand: "P", // Changed to uppercase P for GitHub CLI compatibility
 		},
 		{
 			name:      "title flag",
@@ -58,7 +58,7 @@ func TestCreateCmdFlags(t *testing.T) {
 			name:      "project flag",
 			flagName:  "project",
 			required:  false,
-			shorthand: "",
+			shorthand: "p", // Now has shorthand 'p' for GitHub CLI compatibility
 		},
 	}
 
