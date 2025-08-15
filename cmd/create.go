@@ -235,19 +235,21 @@ func getMilestoneID(client *api.GraphQLClient, owner, repo, milestone string) (s
 	return "", nil
 }
 
-// getProjectID gets the GraphQL node ID for a project
-func getProjectID(client *api.GraphQLClient, owner, repo, project string) (string, error) {
+// getProjectV2ID gets the GraphQL node ID for a ProjectV2
+func getProjectV2ID(client *api.GraphQLClient, owner, repo, project string) (string, error) {
 	if project == "" {
 		return "", nil
 	}
 	
-	query := `
+	// First, try to find project in repository
+	repoQuery := `
 		query($owner: String!, $repo: String!) {
 			repository(owner: $owner, name: $repo) {
-				projects(first: 100, states: OPEN) {
+				projectsV2(first: 100) {
 					nodes {
 						id
-						name
+						title
+						number
 					}
 				}
 			}
@@ -258,30 +260,186 @@ func getProjectID(client *api.GraphQLClient, owner, repo, project string) (strin
 		"repo":  repo,
 	}
 	
+	var repoResponse struct {
+		Repository struct {
+			ProjectsV2 struct {
+				Nodes []struct {
+					ID     string `json:"id"`
+					Title  string `json:"title"`
+					Number int    `json:"number"`
+				} `json:"nodes"`
+			} `json:"projectsV2"`
+		} `json:"repository"`
+	}
+	
+	err := client.Do(repoQuery, variables, &repoResponse)
+	if err == nil {
+		// Check by title or number
+		for _, p := range repoResponse.Repository.ProjectsV2.Nodes {
+			if strings.EqualFold(p.Title, project) || fmt.Sprint(p.Number) == project {
+				return p.ID, nil
+			}
+		}
+	}
+	
+	// If not found in repository, try user projects
+	userQuery := `
+		query($login: String!) {
+			user(login: $login) {
+				projectsV2(first: 100) {
+					nodes {
+						id
+						title
+						number
+					}
+				}
+			}
+		}`
+	
+	userVariables := map[string]interface{}{
+		"login": owner,
+	}
+	
+	var userResponse struct {
+		User struct {
+			ProjectsV2 struct {
+				Nodes []struct {
+					ID     string `json:"id"`
+					Title  string `json:"title"`
+					Number int    `json:"number"`
+				} `json:"nodes"`
+			} `json:"projectsV2"`
+		} `json:"user"`
+	}
+	
+	err = client.Do(userQuery, userVariables, &userResponse)
+	if err == nil {
+		// Check by title or number
+		for _, p := range userResponse.User.ProjectsV2.Nodes {
+			if strings.EqualFold(p.Title, project) || fmt.Sprint(p.Number) == project {
+				return p.ID, nil
+			}
+		}
+	}
+	
+	// If still not found, try organization projects
+	orgQuery := `
+		query($login: String!) {
+			organization(login: $login) {
+				projectsV2(first: 100) {
+					nodes {
+						id
+						title
+						number
+					}
+				}
+			}
+		}`
+	
+	orgVariables := map[string]interface{}{
+		"login": owner,
+	}
+	
+	var orgResponse struct {
+		Organization struct {
+			ProjectsV2 struct {
+				Nodes []struct {
+					ID     string `json:"id"`
+					Title  string `json:"title"`
+					Number int    `json:"number"`
+				} `json:"nodes"`
+			} `json:"projectsV2"`
+		} `json:"organization"`
+	}
+	
+	err = client.Do(orgQuery, orgVariables, &orgResponse)
+	if err == nil {
+		// Check by title or number
+		for _, p := range orgResponse.Organization.ProjectsV2.Nodes {
+			if strings.EqualFold(p.Title, project) || fmt.Sprint(p.Number) == project {
+				return p.ID, nil
+			}
+		}
+	}
+	
+	fmt.Printf("Warning: project '%s' not found\n", project)
+	return "", nil
+}
+
+// getIssueNodeIDByNumber gets the GraphQL node ID for an issue by its number
+func getIssueNodeIDByNumber(client *api.GraphQLClient, owner, repo string, number int) (string, error) {
+	query := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) {
+					id
+				}
+			}
+		}`
+	
+	variables := map[string]interface{}{
+		"owner":  owner,
+		"repo":   repo,
+		"number": number,
+	}
+	
 	var response struct {
 		Repository struct {
-			Projects struct {
-				Nodes []struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
-				} `json:"nodes"`
-			} `json:"projects"`
+			Issue struct {
+				ID string `json:"id"`
+			} `json:"issue"`
 		} `json:"repository"`
 	}
 	
 	err := client.Do(query, variables, &response)
 	if err != nil {
-		return "", fmt.Errorf("failed to get projects: %w", err)
+		return "", fmt.Errorf("failed to get issue #%d: %w", number, err)
 	}
 	
-	for _, p := range response.Repository.Projects.Nodes {
-		if strings.EqualFold(p.Name, project) {
-			return p.ID, nil
-		}
+	if response.Repository.Issue.ID == "" {
+		return "", fmt.Errorf("issue #%d not found in %s/%s", number, owner, repo)
 	}
 	
-	fmt.Printf("Warning: project '%s' not found in repository\n", project)
-	return "", nil
+	return response.Repository.Issue.ID, nil
+}
+
+// addIssueToProjectV2 adds an issue to a ProjectV2
+func addIssueToProjectV2(client *api.GraphQLClient, issueNumber int, owner, repo, projectID string) error {
+	// First get the issue's node ID
+	issueID, err := getIssueNodeIDByNumber(client, owner, repo, issueNumber)
+	if err != nil {
+		return err
+	}
+	
+	// Add the issue to the project
+	mutation := `
+		mutation($projectId: ID!, $contentId: ID!) {
+			addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+				item {
+					id
+				}
+			}
+		}`
+	
+	variables := map[string]interface{}{
+		"projectId": projectID,
+		"contentId": issueID,
+	}
+	
+	var response struct {
+		AddProjectV2ItemById struct {
+			Item struct {
+				ID string `json:"id"`
+			} `json:"item"`
+		} `json:"addProjectV2ItemById"`
+	}
+	
+	err = client.Do(mutation, variables, &response)
+	if err != nil {
+		return fmt.Errorf("failed to add issue to project: %w", err)
+	}
+	
+	return nil
 }
 
 // createSubIssue creates a new issue with a parent issue
@@ -423,15 +581,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	
 	// Get project ID if specified
+	var projectV2ID string
 	if projectFlag != "" {
 		fmt.Fprintf(cmd.OutOrStderr(), "Getting project ID...\n")
-		projectID, err := getProjectID(client, defaultOwner, defaultRepo, projectFlag)
+		projectV2ID, err = getProjectV2ID(client, defaultOwner, defaultRepo, projectFlag)
 		if err != nil {
 			return err
 		}
-		if projectID != "" {
-			input["projectIds"] = []string{projectID}
-		}
+		// Note: projectIds field is for classic projects and won't work with ProjectsV2
+		// We'll need to add the issue to the project after creation
 	}
 	
 	// Create the sub-issue
@@ -443,6 +601,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				defaultOwner, defaultRepo)
 		}
 		return err
+	}
+	
+	// Add issue to ProjectV2 if specified
+	if projectV2ID != "" {
+		fmt.Fprintf(cmd.OutOrStderr(), "Adding issue to project...\n")
+		err = addIssueToProjectV2(client, number, defaultOwner, defaultRepo, projectV2ID)
+		if err != nil {
+			fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to add issue to project: %v\n", err)
+		}
 	}
 	
 	// Success message
