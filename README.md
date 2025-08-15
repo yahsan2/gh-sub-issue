@@ -56,7 +56,7 @@ gh sub-issue add 123 456 --repo owner/repo
 Create a new issue directly linked to a parent:
 
 ```bash
-# Basic usage (GitHub CLI compatible flags)
+# Basic usage
 gh sub-issue create -P 123 -t "Implement user authentication"
 
 # With description and labels
@@ -66,13 +66,13 @@ gh sub-issue create -P 123 \
   -l "backend" -l "api" \
   -a "@me"
 
-# With project assignment (GitHub CLI compatible)
+# With project assignment
 gh sub-issue create -P 123 \
   -t "QA Testing Task" \
   -p "QA Sprint" \
   -a "qa-team"
 
-# Multiple projects (like gh issue create)
+# Multiple projects
 gh sub-issue create -P 123 \
   -t "Cross-functional task" \
   -p "Dev Sprint" -p "QA Board" -p "Q1 Goals"
@@ -156,7 +156,7 @@ Flags:
   -l, --label        Labels to add (can specify multiple)
   -a, --assignee     Usernames to assign (can specify multiple)
   -m, --milestone    Milestone name or number
-  -p, --project      Projects to add (can specify multiple, GitHub CLI compatible)
+  -p, --project      Projects to add (can specify multiple)
   -R, --repo         Repository in OWNER/REPO format
   -h, --help         Show help for command
 ```
