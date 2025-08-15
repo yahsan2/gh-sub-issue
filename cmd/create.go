@@ -235,6 +235,55 @@ func getMilestoneID(client *api.GraphQLClient, owner, repo, milestone string) (s
 	return "", nil
 }
 
+// getProjectID gets the GraphQL node ID for a project
+func getProjectID(client *api.GraphQLClient, owner, repo, project string) (string, error) {
+	if project == "" {
+		return "", nil
+	}
+	
+	query := `
+		query($owner: String!, $repo: String!) {
+			repository(owner: $owner, name: $repo) {
+				projects(first: 100, states: OPEN) {
+					nodes {
+						id
+						name
+					}
+				}
+			}
+		}`
+	
+	variables := map[string]interface{}{
+		"owner": owner,
+		"repo":  repo,
+	}
+	
+	var response struct {
+		Repository struct {
+			Projects struct {
+				Nodes []struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"nodes"`
+			} `json:"projects"`
+		} `json:"repository"`
+	}
+	
+	err := client.Do(query, variables, &response)
+	if err != nil {
+		return "", fmt.Errorf("failed to get projects: %w", err)
+	}
+	
+	for _, p := range response.Repository.Projects.Nodes {
+		if strings.EqualFold(p.Name, project) {
+			return p.ID, nil
+		}
+	}
+	
+	fmt.Printf("Warning: project '%s' not found in repository\n", project)
+	return "", nil
+}
+
 // createSubIssue creates a new issue with a parent issue
 func createSubIssue(client *api.GraphQLClient, input map[string]interface{}) (int, string, error) {
 	mutation := `
@@ -370,6 +419,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 		if milestoneID != "" {
 			input["milestoneId"] = milestoneID
+		}
+	}
+	
+	// Get project ID if specified
+	if projectFlag != "" {
+		fmt.Fprintf(cmd.OutOrStderr(), "Getting project ID...\n")
+		projectID, err := getProjectID(client, defaultOwner, defaultRepo, projectFlag)
+		if err != nil {
+			return err
+		}
+		if projectID != "" {
+			input["projectIds"] = []string{projectID}
 		}
 	}
 	
