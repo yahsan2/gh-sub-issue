@@ -66,6 +66,17 @@ gh sub-issue create --parent 123 \
   --label "backend,api" \
   --assignee "@me"
 
+# With project assignment
+gh sub-issue create --parent 123 \
+  --title "QA Testing Task" \
+  --project "QA Sprint" \
+  --assignee "qa-team"
+
+# Multiple projects (GitHub CLI compatible)
+gh sub-issue create --parent 123 \
+  --title "Cross-functional task" \
+  --project "Dev Sprint" --project "QA Board"
+
 # Using parent issue URL
 gh sub-issue create \
   --parent https://github.com/owner/repo/issues/123 \
@@ -139,13 +150,13 @@ Usage:
   gh sub-issue create [flags]
 
 Flags:
-  -P, --parent       Parent issue number or URL (required)
+  -p, --parent       Parent issue number or URL (required)
   -t, --title        Title for the new sub-issue (required)
   -b, --body         Body text for the sub-issue
   -l, --label        Comma-separated labels to add
   -a, --assignee     Comma-separated usernames to assign
   -m, --milestone    Milestone name or number
-  -p, --project      Project name or number
+      --project      Projects to add (can specify multiple times)
   -R, --repo         Repository in OWNER/REPO format
   -h, --help         Show help for command
 ```

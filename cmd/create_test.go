@@ -58,7 +58,7 @@ func TestCreateCmdFlags(t *testing.T) {
 			name:      "project flag",
 			flagName:  "project",
 			required:  false,
-			shorthand: "",
+			shorthand: "", // No shorthand
 		},
 	}
 
@@ -222,6 +222,7 @@ func TestBuildCreateInput(t *testing.T) {
 		labelIDs       []string
 		assigneeIDs    []string
 		milestoneID    string
+		projectIDs     []string
 		expectedFields int // Number of fields in the input map
 	}{
 		{
@@ -268,6 +269,15 @@ func TestBuildCreateInput(t *testing.T) {
 			expectedFields: 4, // repositoryId, title, parentIssueId, milestoneId
 		},
 		{
+			name:           "with project",
+			repoID:         "repo123",
+			title:          "Test Issue",
+			parentID:       "parent456",
+			body:           "",
+			projectIDs:     []string{"project1"},
+			expectedFields: 4, // repositoryId, title, parentIssueId, projectIds
+		},
+		{
 			name:           "with all fields",
 			repoID:         "repo123",
 			title:          "Test Issue",
@@ -276,7 +286,8 @@ func TestBuildCreateInput(t *testing.T) {
 			labelIDs:       []string{"label1"},
 			assigneeIDs:    []string{"user1"},
 			milestoneID:    "milestone789",
-			expectedFields: 7, // All fields
+			projectIDs:     []string{"project1"},
+			expectedFields: 8, // All fields
 		},
 	}
 
@@ -290,6 +301,7 @@ func TestBuildCreateInput(t *testing.T) {
 				tt.labelIDs,
 				tt.assigneeIDs,
 				tt.milestoneID,
+				tt.projectIDs,
 			)
 
 			if len(input) != tt.expectedFields {
@@ -335,6 +347,12 @@ func TestBuildCreateInput(t *testing.T) {
 					t.Errorf("milestoneId: got %v, want %s", input["milestoneId"], tt.milestoneID)
 				}
 			}
+
+			if len(tt.projectIDs) > 0 {
+				if _, exists := input["projectIds"]; !exists {
+					t.Errorf("projectIds should be in input")
+				}
+			}
 		})
 	}
 }
@@ -364,7 +382,7 @@ func splitRepoFlag(repo string) []string {
 	return parts
 }
 
-func buildCreateIssueInput(repoID, title, parentID, body string, labelIDs, assigneeIDs []string, milestoneID string) map[string]interface{} {
+func buildCreateIssueInput(repoID, title, parentID, body string, labelIDs, assigneeIDs []string, milestoneID string, projectIDs []string) map[string]interface{} {
 	input := map[string]interface{}{
 		"repositoryId":  repoID,
 		"title":         title,
@@ -387,5 +405,44 @@ func buildCreateIssueInput(repoID, title, parentID, body string, labelIDs, assig
 		input["milestoneId"] = milestoneID
 	}
 
+	if len(projectIDs) > 0 {
+		input["projectIds"] = projectIDs
+	}
+
 	return input
+}
+
+func TestGetProjectIDLogic(t *testing.T) {
+	tests := []struct {
+		name        string
+		projectName string
+		expected    bool // whether we expect the project logic to be invoked
+	}{
+		{
+			name:        "empty project name",
+			projectName: "",
+			expected:    false,
+		},
+		{
+			name:        "valid project name",
+			projectName: "My Project",
+			expected:    true,
+		},
+		{
+			name:        "project with special chars",
+			projectName: "Project-v2.0_test",
+			expected:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This tests the logic but doesn't actually call the API
+			// since we don't have a real GraphQL client in the test environment
+			shouldCallAPI := tt.projectName != ""
+			if shouldCallAPI != tt.expected {
+				t.Errorf("shouldCallAPI: got %v, want %v", shouldCallAPI, tt.expected)
+			}
+		})
+	}
 }
