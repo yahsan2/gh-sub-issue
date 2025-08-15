@@ -16,7 +16,7 @@ var (
 	labelsFlag     []string
 	assigneesFlag  []string
 	milestoneFlag  string
-	projectsFlag   []string  // Changed to support multiple projects
+	projectFlag    string
 	createRepoFlag string
 )
 
@@ -27,39 +27,32 @@ var createCmd = &cobra.Command{
 
 Examples:
   # Create with minimal options
-  gh sub-issue create -P 123 -t "Implement feature X"
+  gh sub-issue create --parent 123 --title "Implement feature X"
   
   # Create with body text
-  gh sub-issue create -P 123 -t "Bug fix" -b "Description of the issue"
+  gh sub-issue create --parent 123 --title "Bug fix" --body "Description of the issue"
   
   # Create with labels and assignees
-  gh sub-issue create -P 123 -t "Task" -l bug -l priority -a username
-  
-  # Add to single project (GitHub CLI compatible)
-  gh sub-issue create -P 123 -t "Task" -p "Roadmap"
-  
-  # Add to multiple projects
-  gh sub-issue create -P 123 -t "Task" -p "Dev Sprint" -p "Q1 Goals"
+  gh sub-issue create --parent 123 --title "Task" --label bug --label priority --assignee username
   
   # Cross-repository parent issue
-  gh sub-issue create -P https://github.com/owner/repo/issues/123 -t "Sub-task"
+  gh sub-issue create --parent https://github.com/owner/repo/issues/123 --title "Sub-task"
   
   # Specify repository for new issue
-  gh sub-issue create -P 123 -t "Task" -R owner/repo`,
+  gh sub-issue create --parent 123 --title "Task" --repo owner/repo`,
 	RunE: runCreate,
 }
 
 func init() {
 	rootCmd.AddCommand(createCmd)
 	
-	// GitHub CLI compatible flags: -P for parent, -p for project
-	createCmd.Flags().StringVarP(&parentFlag, "parent", "P", "", "Parent issue number or URL (required)")
+	createCmd.Flags().StringVarP(&parentFlag, "parent", "p", "", "Parent issue number or URL (required)")
 	createCmd.Flags().StringVarP(&titleFlag, "title", "t", "", "Title for the new sub-issue (required)")
 	createCmd.Flags().StringVarP(&bodyFlag, "body", "b", "", "Body text for the new sub-issue")
 	createCmd.Flags().StringSliceVarP(&labelsFlag, "label", "l", []string{}, "Add labels to the issue")
 	createCmd.Flags().StringSliceVarP(&assigneesFlag, "assignee", "a", []string{}, "Assign users to the issue")
 	createCmd.Flags().StringVarP(&milestoneFlag, "milestone", "m", "", "Set milestone for the issue")
-	createCmd.Flags().StringSliceVarP(&projectsFlag, "project", "p", []string{}, "Add issue to projects (can specify multiple times)")
+	createCmd.Flags().StringVar(&projectFlag, "project", "", "Add issue to project")
 	createCmd.Flags().StringVarP(&createRepoFlag, "repo", "R", "", "Repository for the new issue in OWNER/REPO format")
 	
 	createCmd.MarkFlagRequired("parent")
@@ -289,7 +282,7 @@ func getProjectV2ID(client *api.GraphQLClient, owner, repo, project string) (str
 		}
 	}
 	
-	// If not found in repository, try user projects
+	// Try user-level projects
 	userQuery := `
 		query($login: String!) {
 			user(login: $login) {
@@ -303,7 +296,7 @@ func getProjectV2ID(client *api.GraphQLClient, owner, repo, project string) (str
 			}
 		}`
 	
-	userVariables := map[string]interface{}{
+	userVars := map[string]interface{}{
 		"login": owner,
 	}
 	
@@ -319,9 +312,8 @@ func getProjectV2ID(client *api.GraphQLClient, owner, repo, project string) (str
 		} `json:"user"`
 	}
 	
-	err = client.Do(userQuery, userVariables, &userResponse)
+	err = client.Do(userQuery, userVars, &userResponse)
 	if err == nil {
-		// Check by title or number
 		for _, p := range userResponse.User.ProjectsV2.Nodes {
 			if strings.EqualFold(p.Title, project) || fmt.Sprint(p.Number) == project {
 				return p.ID, nil
@@ -329,7 +321,7 @@ func getProjectV2ID(client *api.GraphQLClient, owner, repo, project string) (str
 		}
 	}
 	
-	// If still not found, try organization projects
+	// Try organization-level projects
 	orgQuery := `
 		query($login: String!) {
 			organization(login: $login) {
@@ -343,10 +335,6 @@ func getProjectV2ID(client *api.GraphQLClient, owner, repo, project string) (str
 			}
 		}`
 	
-	orgVariables := map[string]interface{}{
-		"login": owner,
-	}
-	
 	var orgResponse struct {
 		Organization struct {
 			ProjectsV2 struct {
@@ -359,9 +347,8 @@ func getProjectV2ID(client *api.GraphQLClient, owner, repo, project string) (str
 		} `json:"organization"`
 	}
 	
-	err = client.Do(orgQuery, orgVariables, &orgResponse)
+	err = client.Do(orgQuery, userVars, &orgResponse)
 	if err == nil {
-		// Check by title or number
 		for _, p := range orgResponse.Organization.ProjectsV2.Nodes {
 			if strings.EqualFold(p.Title, project) || fmt.Sprint(p.Number) == project {
 				return p.ID, nil
@@ -373,54 +360,14 @@ func getProjectV2ID(client *api.GraphQLClient, owner, repo, project string) (str
 	return "", nil
 }
 
-// getIssueNodeIDByNumber gets the GraphQL node ID for an issue by its number
-func getIssueNodeIDByNumber(client *api.GraphQLClient, owner, repo string, number int) (string, error) {
-	query := `
-		query($owner: String!, $repo: String!, $number: Int!) {
-			repository(owner: $owner, name: $repo) {
-				issue(number: $number) {
-					id
-				}
-			}
-		}`
-	
-	variables := map[string]interface{}{
-		"owner":  owner,
-		"repo":   repo,
-		"number": number,
+// assignToProjectV2 assigns an issue to a ProjectV2 using the addProjectV2ItemById mutation
+func assignToProjectV2(client *api.GraphQLClient, projectID, issueID string) error {
+	if projectID == "" || issueID == "" {
+		return nil
 	}
 	
-	var response struct {
-		Repository struct {
-			Issue struct {
-				ID string `json:"id"`
-			} `json:"issue"`
-		} `json:"repository"`
-	}
-	
-	err := client.Do(query, variables, &response)
-	if err != nil {
-		return "", fmt.Errorf("failed to get issue #%d: %w", number, err)
-	}
-	
-	if response.Repository.Issue.ID == "" {
-		return "", fmt.Errorf("issue #%d not found in %s/%s", number, owner, repo)
-	}
-	
-	return response.Repository.Issue.ID, nil
-}
-
-// addIssueToProjectV2 adds an issue to a ProjectV2
-func addIssueToProjectV2(client *api.GraphQLClient, issueNumber int, owner, repo, projectID string) error {
-	// First get the issue's node ID
-	issueID, err := getIssueNodeIDByNumber(client, owner, repo, issueNumber)
-	if err != nil {
-		return err
-	}
-	
-	// Add the issue to the project
 	mutation := `
-		mutation($projectId: ID!, $contentId: ID!) {
+		mutation AddProjectV2Item($projectId: ID!, $contentId: ID!) {
 			addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
 				item {
 					id
@@ -441,7 +388,7 @@ func addIssueToProjectV2(client *api.GraphQLClient, issueNumber int, owner, repo
 		} `json:"addProjectV2ItemById"`
 	}
 	
-	err = client.Do(mutation, variables, &response)
+	err := client.Do(mutation, variables, &response)
 	if err != nil {
 		return fmt.Errorf("failed to add issue to project: %w", err)
 	}
@@ -450,11 +397,12 @@ func addIssueToProjectV2(client *api.GraphQLClient, issueNumber int, owner, repo
 }
 
 // createSubIssue creates a new issue with a parent issue
-func createSubIssue(client *api.GraphQLClient, input map[string]interface{}) (int, string, error) {
+func createSubIssue(client *api.GraphQLClient, input map[string]interface{}) (int, string, string, error) {
 	mutation := `
 		mutation CreateSubIssue($input: CreateIssueInput!) {
 			createIssue(input: $input) {
 				issue {
+					id
 					number
 					url
 					title
@@ -469,6 +417,7 @@ func createSubIssue(client *api.GraphQLClient, input map[string]interface{}) (in
 	var response struct {
 		CreateIssue struct {
 			Issue struct {
+				ID     string `json:"id"`
 				Number int    `json:"number"`
 				URL    string `json:"url"`
 				Title  string `json:"title"`
@@ -478,10 +427,10 @@ func createSubIssue(client *api.GraphQLClient, input map[string]interface{}) (in
 	
 	err := client.Do(mutation, variables, &response)
 	if err != nil {
-		return 0, "", fmt.Errorf("failed to create sub-issue: %w", err)
+		return 0, "", "", fmt.Errorf("failed to create sub-issue: %w", err)
 	}
 	
-	return response.CreateIssue.Issue.Number, response.CreateIssue.Issue.URL, nil
+	return response.CreateIssue.Issue.Number, response.CreateIssue.Issue.URL, response.CreateIssue.Issue.ID, nil
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -587,26 +536,20 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 	
-	// Get project IDs if specified (supports multiple projects)
-	var projectV2IDs []string
-	if len(projectsFlag) > 0 {
-		fmt.Fprintf(cmd.OutOrStderr(), "Getting project IDs...\n")
-		for _, project := range projectsFlag {
-			projectID, err := getProjectV2ID(client, defaultOwner, defaultRepo, project)
-			if err != nil {
-				return err
-			}
-			if projectID != "" {
-				projectV2IDs = append(projectV2IDs, projectID)
-			}
+	// Get project ID if specified (will be assigned after issue creation)
+	var projectID string
+	if projectFlag != "" {
+		fmt.Fprintf(cmd.OutOrStderr(), "Getting project ID...\n")
+		var err error
+		projectID, err = getProjectV2ID(client, defaultOwner, defaultRepo, projectFlag)
+		if err != nil {
+			return err
 		}
-		// Note: projectIds field is for classic projects and won't work with ProjectsV2
-		// We'll need to add the issue to the projects after creation
 	}
 	
 	// Create the sub-issue
 	fmt.Fprintf(cmd.OutOrStderr(), "Creating sub-issue...\n")
-	number, url, err := createSubIssue(client, input)
+	number, url, issueID, err := createSubIssue(client, input)
 	if err != nil {
 		if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "403") {
 			return fmt.Errorf("insufficient permissions to create issues in %s/%s",
@@ -615,14 +558,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	
-	// Add issue to ProjectsV2 if specified (supports multiple projects)
-	if len(projectV2IDs) > 0 {
-		fmt.Fprintf(cmd.OutOrStderr(), "Adding issue to projects...\n")
-		for i, projectID := range projectV2IDs {
-			err = addIssueToProjectV2(client, number, defaultOwner, defaultRepo, projectID)
-			if err != nil {
-				fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to add issue to project %s: %v\n", projectsFlag[i], err)
-			}
+	// Assign to project if specified
+	if projectID != "" {
+		fmt.Fprintf(cmd.OutOrStderr(), "Assigning issue to project...\n")
+		err := assignToProjectV2(client, projectID, issueID)
+		if err != nil {
+			fmt.Fprintf(cmd.OutOrStderr(), "Warning: %v\n", err)
 		}
 	}
 	

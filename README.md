@@ -57,30 +57,25 @@ Create a new issue directly linked to a parent:
 
 ```bash
 # Basic usage
-gh sub-issue create -P 123 -t "Implement user authentication"
+gh sub-issue create --parent 123 --title "Implement user authentication"
 
 # With description and labels
-gh sub-issue create -P 123 \
-  -t "Add login endpoint" \
-  -b "Implement POST /api/login endpoint" \
-  -l "backend" -l "api" \
-  -a "@me"
+gh sub-issue create --parent 123 \
+  --title "Add login endpoint" \
+  --body "Implement POST /api/login endpoint" \
+  --label "backend,api" \
+  --assignee "@me"
 
 # With project assignment
-gh sub-issue create -P 123 \
-  -t "QA Testing Task" \
-  -p "QA Sprint" \
-  -a "qa-team"
-
-# Multiple projects
-gh sub-issue create -P 123 \
-  -t "Cross-functional task" \
-  -p "Dev Sprint" -p "QA Board" -p "Q1 Goals"
+gh sub-issue create --parent 123 \
+  --title "QA Testing Task" \
+  --project "QA Sprint" \
+  --assignee "qa-team"
 
 # Using parent issue URL
 gh sub-issue create \
-  -P https://github.com/owner/repo/issues/123 \
-  -t "Write API tests"
+  --parent https://github.com/owner/repo/issues/123 \
+  --title "Write API tests"
 ```
 
 ### List sub-issues
@@ -150,13 +145,13 @@ Usage:
   gh sub-issue create [flags]
 
 Flags:
-  -P, --parent       Parent issue number or URL (required)
+  -p, --parent       Parent issue number or URL (required)
   -t, --title        Title for the new sub-issue (required)
   -b, --body         Body text for the sub-issue
-  -l, --label        Labels to add (can specify multiple)
-  -a, --assignee     Usernames to assign (can specify multiple)
+  -l, --label        Comma-separated labels to add
+  -a, --assignee     Comma-separated usernames to assign
   -m, --milestone    Milestone name or number
-  -p, --project      Projects to add (can specify multiple)
+      --project      Project name or number
   -R, --repo         Repository in OWNER/REPO format
   -h, --help         Show help for command
 ```
