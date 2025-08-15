@@ -16,7 +16,7 @@ var (
 	labelsFlag     []string
 	assigneesFlag  []string
 	milestoneFlag  string
-	projectFlag    string
+	projectsFlag   []string  // Changed to support multiple projects
 	createRepoFlag string
 )
 
@@ -35,6 +35,12 @@ Examples:
   # Create with labels and assignees
   gh sub-issue create --parent 123 --title "Task" --label bug --label priority --assignee username
   
+  # Add to a single project
+  gh sub-issue create --parent 123 --title "Task" --project "Roadmap"
+  
+  # Add to multiple projects (GitHub CLI compatible)
+  gh sub-issue create --parent 123 --title "Task" --project "Dev Sprint" --project "Q1 Goals"
+  
   # Cross-repository parent issue
   gh sub-issue create --parent https://github.com/owner/repo/issues/123 --title "Sub-task"
   
@@ -52,7 +58,7 @@ func init() {
 	createCmd.Flags().StringSliceVarP(&labelsFlag, "label", "l", []string{}, "Add labels to the issue")
 	createCmd.Flags().StringSliceVarP(&assigneesFlag, "assignee", "a", []string{}, "Assign users to the issue")
 	createCmd.Flags().StringVarP(&milestoneFlag, "milestone", "m", "", "Set milestone for the issue")
-	createCmd.Flags().StringVar(&projectFlag, "project", "", "Add issue to project")
+	createCmd.Flags().StringSliceVar(&projectsFlag, "project", []string{}, "Add issue to projects (can specify multiple times)")
 	createCmd.Flags().StringVarP(&createRepoFlag, "repo", "R", "", "Repository for the new issue in OWNER/REPO format")
 	
 	createCmd.MarkFlagRequired("parent")
@@ -536,14 +542,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 	
-	// Get project ID if specified (will be assigned after issue creation)
-	var projectID string
-	if projectFlag != "" {
-		fmt.Fprintf(cmd.OutOrStderr(), "Getting project ID...\n")
-		var err error
-		projectID, err = getProjectV2ID(client, defaultOwner, defaultRepo, projectFlag)
-		if err != nil {
-			return err
+	// Get project IDs if specified (will be assigned after issue creation)
+	var projectIDs []string
+	if len(projectsFlag) > 0 {
+		fmt.Fprintf(cmd.OutOrStderr(), "Getting project IDs...\n")
+		for _, project := range projectsFlag {
+			projectID, err := getProjectV2ID(client, defaultOwner, defaultRepo, project)
+			if err != nil {
+				return err
+			}
+			if projectID != "" {
+				projectIDs = append(projectIDs, projectID)
+			}
 		}
 	}
 	
@@ -558,12 +568,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	
-	// Assign to project if specified
-	if projectID != "" {
-		fmt.Fprintf(cmd.OutOrStderr(), "Assigning issue to project...\n")
-		err := assignToProjectV2(client, projectID, issueID)
-		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "Warning: %v\n", err)
+	// Assign to projects if specified
+	if len(projectIDs) > 0 {
+		fmt.Fprintf(cmd.OutOrStderr(), "Assigning issue to projects...\n")
+		for i, projectID := range projectIDs {
+			err := assignToProjectV2(client, projectID, issueID)
+			if err != nil {
+				fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to add to project %s: %v\n", projectsFlag[i], err)
+			}
 		}
 	}
 	
