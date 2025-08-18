@@ -41,7 +41,7 @@ gh extension upgrade sub-issue
 Link an existing issue to a parent issue:
 
 ```bash
-# Using issue numbers
+# Using issue numbers (add existing issue 456 as sub-issue of parent 123)
 gh sub-issue add 123 456
 
 # Using URLs
@@ -106,7 +106,7 @@ gh sub-issue list https://github.com/owner/repo/issues/123
 Unlink sub-issues from a parent issue:
 
 ```bash
-# Remove a single sub-issue
+# Remove a single sub-issue (remove sub-issue 456 from parent 123)
 gh sub-issue remove 123 456
 
 # Remove multiple sub-issues
@@ -214,13 +214,13 @@ gh sub-issue create --parent 100 --title "Implement JWT tokens" --label "backend
 gh sub-issue create --parent 100 --title "Create login UI" --label "frontend"
 
 # 3. Link an existing issue as a sub-issue
-gh sub-issue add 100 95  # Add existing issue #95 as sub-issue
+gh sub-issue add 100 95  # Add existing issue 95 as sub-issue of parent 100
 
 # 4. View progress
 gh sub-issue list 100 --state all
 
 # 5. Remove a sub-issue if needed
-gh sub-issue remove 100 95  # Unlink issue #95 from parent
+gh sub-issue remove 100 95  # Remove sub-issue 95 from parent 100
 ```
 
 ### Output example
