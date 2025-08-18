@@ -41,13 +41,13 @@ gh extension upgrade sub-issue
 Link an existing issue to a parent issue:
 
 ```bash
-# Using issue numbers
+# Using issue numbers (add existing issue 456 as sub-issue of parent 123)
 gh sub-issue add 123 456
 
-# Using URLs
+# Using URLs (parent issue URL, existing issue number)
 gh sub-issue add https://github.com/owner/repo/issues/123 456
 
-# Cross-repository
+# Cross-repository (add existing issue 456 as sub-issue of parent 123)
 gh sub-issue add 123 456 --repo owner/repo
 ```
 
