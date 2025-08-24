@@ -94,10 +94,7 @@ gh sub-issue list 123
 # Show all states (open, closed)
 gh sub-issue list 123 --state all
 
-# JSON output for scripting (all fields)
-gh sub-issue list 123 --json
-
-# JSON output with selected fields
+# JSON output with selected fields (required)
 gh sub-issue list 123 --json number,title,state
 
 # JSON output with parent and meta information
@@ -181,7 +178,7 @@ Arguments:
 Flags:
   -s, --state     Filter by state: {open|closed|all} (default: open)
   -L, --limit     Maximum number of sub-issues to display (default: 30)
-  --json          Output in JSON format. Optionally specify fields: number,title,state,url,assignees,parent.number,parent.title,parent.state,total,openCount
+  --json fields   Output JSON with the specified fields
   -w, --web       Open in web browser
   -R, --repo      Repository in OWNER/REPO format
   -h, --help      Show help for command

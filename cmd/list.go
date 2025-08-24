@@ -39,13 +39,10 @@ Examples:
   # Filter by state
   gh sub-issues list 123 --state closed
   
-  # JSON output (all fields)
-  gh sub-issues list 123 --json
-  
-  # JSON output (selected fields)
+  # JSON output with selected fields
   gh sub-issues list 123 --json number,title,state
   
-  # JSON output (parent and meta info)
+  # JSON output with parent and meta info
   gh sub-issues list 123 --json parent.number,parent.title,total,openCount
   
   # Limit results
@@ -61,12 +58,9 @@ func init() {
 	// Add flags
 	listCmd.Flags().StringVarP(&listStateFlag, "state", "s", "open", "Filter by state: {open|closed|all}")
 	listCmd.Flags().IntVarP(&listLimitFlag, "limit", "L", 30, "Maximum number of sub-issues to display")
-	listCmd.Flags().StringVar(&listJSONFlag, "json", "", "Output in JSON format. Optionally specify fields: number,title,state,url,assignees,parent.number,parent.title,parent.state,total,openCount")
+	listCmd.Flags().StringVar(&listJSONFlag, "json", "", "Output JSON with the specified fields")
 	listCmd.Flags().BoolVarP(&listWebFlag, "web", "w", false, "Open in web browser")
 	listCmd.Flags().StringVarP(&listRepoFlag, "repo", "R", "", "Repository in OWNER/REPO format")
-	
-	// Make --json flag work without value (backward compatibility)
-	listCmd.Flags().Lookup("json").NoOptDefVal = "true"
 }
 
 // SubIssue represents a sub-issue
@@ -446,19 +440,20 @@ func runList(cmd *cobra.Command, args []string) error {
 	// Format output
 	var output string
 	
-	if listJSONFlag != "" {
-		// JSON output
-		if listJSONFlag == "true" || listJSONFlag == "" {
-			// Backward compatibility: --json with no fields or --json=true
-			output, err = formatJSON(result)
-		} else {
-			// Field selection: --json=field1,field2,...
-			fields := strings.Split(listJSONFlag, ",")
-			for i, field := range fields {
-				fields[i] = strings.TrimSpace(field)
-			}
-			output, err = formatJSONWithFields(result, fields)
+	if cmd.Flags().Changed("json") {
+		// JSON output requires field specification
+		if listJSONFlag == "" {
+			// Print available fields when no fields specified
+			fmt.Fprintln(cmd.OutOrStderr(), "Specify one or more comma-separated fields for `--json`:\n  assignees\n  number\n  openCount\n  parent.number\n  parent.state\n  parent.title\n  state\n  title\n  total\n  url")
+			return fmt.Errorf("")
 		}
+		
+		// Field selection: --json field1,field2,...
+		fields := strings.Split(listJSONFlag, ",")
+		for i, field := range fields {
+			fields[i] = strings.TrimSpace(field)
+		}
+		output, err = formatJSONWithFields(result, fields)
 		if err != nil {
 			return fmt.Errorf("failed to format JSON: %w", err)
 		}
