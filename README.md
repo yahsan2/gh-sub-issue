@@ -94,8 +94,14 @@ gh sub-issue list 123
 # Show all states (open, closed)
 gh sub-issue list 123 --state all
 
-# JSON output for scripting
+# JSON output for scripting (all fields)
 gh sub-issue list 123 --json
+
+# JSON output with selected fields
+gh sub-issue list 123 --json number,title,state
+
+# JSON output with parent and meta information
+gh sub-issue list 123 --json parent.number,parent.title,total,openCount
 
 # Using URL
 gh sub-issue list https://github.com/owner/repo/issues/123
@@ -175,10 +181,25 @@ Arguments:
 Flags:
   -s, --state     Filter by state: {open|closed|all} (default: open)
   -L, --limit     Maximum number of sub-issues to display (default: 30)
-  --json          Output in JSON format
+  --json          Output in JSON format. Optionally specify fields: number,title,state,url,assignees,parent.number,parent.title,parent.state,total,openCount
   -w, --web       Open in web browser
   -R, --repo      Repository in OWNER/REPO format
   -h, --help      Show help for command
+```
+
+**Field Selection Examples:**
+```bash
+# All fields (default)
+gh sub-issue list 123 --json
+
+# Select specific sub-issue fields
+gh sub-issue list 123 --json number,title,state
+
+# Include parent and meta information
+gh sub-issue list 123 --json parent.number,parent.title,total,openCount
+
+# Mixed field selection
+gh sub-issue list 123 --json number,state,assignees,parent.title
 ```
 
 ### `gh sub-issue remove`
