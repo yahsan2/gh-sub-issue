@@ -189,3 +189,183 @@ func TestFormatTTY(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatJSONWithFields(t *testing.T) {
+	result := &ListResult{
+		Parent: ParentIssue{
+			Number: 1,
+			Title:  "Parent Issue",
+			State:  "open",
+		},
+		SubIssues: []SubIssue{
+			{
+				Number:    2,
+				Title:     "First sub-issue",
+				State:     "open",
+				URL:       "https://github.com/owner/repo/issues/2",
+				Assignees: []string{"user1", "user2"},
+			},
+			{
+				Number:    3,
+				Title:     "Second sub-issue",
+				State:     "closed",
+				URL:       "https://github.com/owner/repo/issues/3",
+				Assignees: []string{},
+			},
+		},
+		Total:     2,
+		OpenCount: 1,
+	}
+
+	tests := []struct {
+		name      string
+		fields    []string
+		wantError bool
+		checkFunc func(t *testing.T, output string)
+	}{
+		{
+			name:   "number and title only",
+			fields: []string{"number", "title"},
+			checkFunc: func(t *testing.T, output string) {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+					t.Fatalf("formatJSONWithFields() produced invalid JSON: %v", err)
+				}
+				
+				subIssues, ok := parsed["subIssues"].([]interface{})
+				if !ok || len(subIssues) != 2 {
+					t.Errorf("Expected 2 sub-issues, got %v", subIssues)
+					return
+				}
+				
+				firstIssue := subIssues[0].(map[string]interface{})
+				if firstIssue["number"].(float64) != 2 {
+					t.Errorf("Expected number 2, got %v", firstIssue["number"])
+				}
+				if firstIssue["title"].(string) != "First sub-issue" {
+					t.Errorf("Expected title 'First sub-issue', got %v", firstIssue["title"])
+				}
+				if _, hasState := firstIssue["state"]; hasState {
+					t.Errorf("Expected no state field, but found one")
+				}
+				if _, hasURL := firstIssue["url"]; hasURL {
+					t.Errorf("Expected no url field, but found one")
+				}
+			},
+		},
+		{
+			name:   "parent fields only",
+			fields: []string{"parent.number", "parent.title"},
+			checkFunc: func(t *testing.T, output string) {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+					t.Fatalf("formatJSONWithFields() produced invalid JSON: %v", err)
+				}
+				
+				parent, ok := parsed["parent"].(map[string]interface{})
+				if !ok {
+					t.Errorf("Expected parent object, got %v", parsed["parent"])
+					return
+				}
+				
+				if parent["number"].(float64) != 1 {
+					t.Errorf("Expected parent number 1, got %v", parent["number"])
+				}
+				if parent["title"].(string) != "Parent Issue" {
+					t.Errorf("Expected parent title 'Parent Issue', got %v", parent["title"])
+				}
+				if _, hasState := parent["state"]; hasState {
+					t.Errorf("Expected no parent state field, but found one")
+				}
+				if _, hasSubIssues := parsed["subIssues"]; hasSubIssues {
+					t.Errorf("Expected no subIssues field, but found one")
+				}
+			},
+		},
+		{
+			name:   "meta fields only",
+			fields: []string{"total", "openCount"},
+			checkFunc: func(t *testing.T, output string) {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+					t.Fatalf("formatJSONWithFields() produced invalid JSON: %v", err)
+				}
+				
+				if parsed["total"].(float64) != 2 {
+					t.Errorf("Expected total 2, got %v", parsed["total"])
+				}
+				if parsed["openCount"].(float64) != 1 {
+					t.Errorf("Expected openCount 1, got %v", parsed["openCount"])
+				}
+				if _, hasSubIssues := parsed["subIssues"]; hasSubIssues {
+					t.Errorf("Expected no subIssues field, but found one")
+				}
+			},
+		},
+		{
+			name:   "mixed fields",
+			fields: []string{"number", "state", "parent.number", "total"},
+			checkFunc: func(t *testing.T, output string) {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+					t.Fatalf("formatJSONWithFields() produced invalid JSON: %v", err)
+				}
+				
+				// Check sub-issues have only number and state
+				subIssues := parsed["subIssues"].([]interface{})
+				firstIssue := subIssues[0].(map[string]interface{})
+				if firstIssue["number"].(float64) != 2 {
+					t.Errorf("Expected number 2, got %v", firstIssue["number"])
+				}
+				if firstIssue["state"].(string) != "open" {
+					t.Errorf("Expected state 'open', got %v", firstIssue["state"])
+				}
+				if _, hasTitle := firstIssue["title"]; hasTitle {
+					t.Errorf("Expected no title field, but found one")
+				}
+				
+				// Check parent has only number
+				parent := parsed["parent"].(map[string]interface{})
+				if parent["number"].(float64) != 1 {
+					t.Errorf("Expected parent number 1, got %v", parent["number"])
+				}
+				
+				// Check total
+				if parsed["total"].(float64) != 2 {
+					t.Errorf("Expected total 2, got %v", parsed["total"])
+				}
+			},
+		},
+		{
+			name:      "invalid field",
+			fields:    []string{"invalid"},
+			wantError: true,
+		},
+		{
+			name:      "mixed valid and invalid fields",
+			fields:    []string{"number", "invalid"},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := formatJSONWithFields(result, tt.fields)
+			
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("formatJSONWithFields() expected error, but got none")
+				}
+				return
+			}
+			
+			if err != nil {
+				t.Fatalf("formatJSONWithFields() unexpected error: %v", err)
+			}
+			
+			if tt.checkFunc != nil {
+				tt.checkFunc(t, output)
+			}
+		})
+	}
+}

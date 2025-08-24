@@ -14,7 +14,7 @@ import (
 var (
 	listStateFlag  string
 	listLimitFlag  int
-	listJSONFlag   bool
+	listJSONFlag   string
 	listWebFlag    bool
 	listRepoFlag   string
 )
@@ -39,8 +39,11 @@ Examples:
   # Filter by state
   gh sub-issues list 123 --state closed
   
-  # JSON output
-  gh sub-issues list 123 --json
+  # JSON output with selected fields
+  gh sub-issues list 123 --json number,title,state
+  
+  # JSON output with parent and meta info
+  gh sub-issues list 123 --json parent.number,parent.title,total,openCount
   
   # Limit results
   gh sub-issues list 123 --limit 10`,
@@ -55,7 +58,7 @@ func init() {
 	// Add flags
 	listCmd.Flags().StringVarP(&listStateFlag, "state", "s", "open", "Filter by state: {open|closed|all}")
 	listCmd.Flags().IntVarP(&listLimitFlag, "limit", "L", 30, "Maximum number of sub-issues to display")
-	listCmd.Flags().BoolVar(&listJSONFlag, "json", false, "Output in JSON format")
+	listCmd.Flags().StringVar(&listJSONFlag, "json", "", "Output JSON with the specified fields")
 	listCmd.Flags().BoolVarP(&listWebFlag, "web", "w", false, "Open in web browser")
 	listCmd.Flags().StringVarP(&listRepoFlag, "repo", "R", "", "Repository in OWNER/REPO format")
 }
@@ -291,6 +294,92 @@ func formatJSON(result *ListResult) (string, error) {
 	return string(jsonBytes), nil
 }
 
+// formatJSONWithFields formats output as JSON with selected fields
+func formatJSONWithFields(result *ListResult, fields []string) (string, error) {
+	// Validate fields
+	validFields := map[string]bool{
+		"number":        true,
+		"title":         true,
+		"state":         true,
+		"url":           true,
+		"assignees":     true,
+		"parent.number": true,
+		"parent.title":  true,
+		"parent.state":  true,
+		"total":         true,
+		"openCount":     true,
+	}
+	
+	for _, field := range fields {
+		if !validFields[field] {
+			return "", fmt.Errorf("invalid field: %s. Valid fields are: number, title, state, url, assignees, parent.number, parent.title, parent.state, total, openCount", field)
+		}
+	}
+	
+	// Create a map to store selected data
+	output := make(map[string]interface{})
+	
+	// Check which fields are requested and build output
+	fieldSet := make(map[string]bool)
+	for _, field := range fields {
+		fieldSet[field] = true
+	}
+	
+	// Add parent fields if requested
+	if fieldSet["parent.number"] || fieldSet["parent.title"] || fieldSet["parent.state"] {
+		parent := make(map[string]interface{})
+		if fieldSet["parent.number"] {
+			parent["number"] = result.Parent.Number
+		}
+		if fieldSet["parent.title"] {
+			parent["title"] = result.Parent.Title
+		}
+		if fieldSet["parent.state"] {
+			parent["state"] = result.Parent.State
+		}
+		output["parent"] = parent
+	}
+	
+	// Add meta fields if requested
+	if fieldSet["total"] {
+		output["total"] = result.Total
+	}
+	if fieldSet["openCount"] {
+		output["openCount"] = result.OpenCount
+	}
+	
+	// Add sub-issues with selected fields
+	if fieldSet["number"] || fieldSet["title"] || fieldSet["state"] || fieldSet["url"] || fieldSet["assignees"] {
+		var subIssues []map[string]interface{}
+		for _, issue := range result.SubIssues {
+			subIssue := make(map[string]interface{})
+			if fieldSet["number"] {
+				subIssue["number"] = issue.Number
+			}
+			if fieldSet["title"] {
+				subIssue["title"] = issue.Title
+			}
+			if fieldSet["state"] {
+				subIssue["state"] = issue.State
+			}
+			if fieldSet["url"] {
+				subIssue["url"] = issue.URL
+			}
+			if fieldSet["assignees"] {
+				subIssue["assignees"] = issue.Assignees
+			}
+			subIssues = append(subIssues, subIssue)
+		}
+		output["subIssues"] = subIssues
+	}
+	
+	jsonBytes, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(jsonBytes), nil
+}
+
 // truncate truncates a string to max length
 func truncate(s string, max int) string {
 	runes := []rune(s)
@@ -351,9 +440,20 @@ func runList(cmd *cobra.Command, args []string) error {
 	// Format output
 	var output string
 	
-	if listJSONFlag {
-		// JSON output
-		output, err = formatJSON(result)
+	if cmd.Flags().Changed("json") {
+		// JSON output requires field specification
+		if listJSONFlag == "" {
+			// Print available fields when no fields specified
+			fmt.Fprintln(cmd.OutOrStderr(), "Specify one or more comma-separated fields for `--json`:\n  assignees\n  number\n  openCount\n  parent.number\n  parent.state\n  parent.title\n  state\n  title\n  total\n  url")
+			return fmt.Errorf("")
+		}
+		
+		// Field selection: --json field1,field2,...
+		fields := strings.Split(listJSONFlag, ",")
+		for i, field := range fields {
+			fields[i] = strings.TrimSpace(field)
+		}
+		output, err = formatJSONWithFields(result, fields)
 		if err != nil {
 			return fmt.Errorf("failed to format JSON: %w", err)
 		}
