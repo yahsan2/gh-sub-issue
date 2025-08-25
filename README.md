@@ -104,6 +104,18 @@ gh sub-issue list 123 --json parent.number,parent.title,total,openCount
 gh sub-issue list https://github.com/owner/repo/issues/123
 ```
 
+### Find parent issue
+
+Find the parent issue of a sub-issue:
+
+```bash
+# Show parent of sub-issue #456
+gh sub-issue list 456 --parent
+
+# JSON output for parent issue
+gh sub-issue list 456 --parent --json parent.number,parent.title,parent.state
+```
+
 ### Remove sub-issues
 
 Unlink sub-issues from a parent issue:
@@ -166,19 +178,20 @@ Flags:
 
 ### `gh sub-issue list`
 
-List all sub-issues for a parent issue.
+List all sub-issues for a parent issue or show the parent issue of a sub-issue.
 
 ```
 Usage:
-  gh sub-issue list <parent-issue> [flags]
+  gh sub-issue list <issue> [flags]
 
 Arguments:
-  parent-issue    Parent issue number or URL
+  issue           Issue number or URL
 
 Flags:
   -s, --state     Filter by state: {open|closed|all} (default: open)
   -L, --limit     Maximum number of sub-issues to display (default: 30)
-  --json fields   Output JSON with the specified fields
+      --parent    Show parent issue instead of sub-issues
+      --json      Output JSON with the specified fields
   -w, --web       Open in web browser
   -R, --repo      Repository in OWNER/REPO format
   -h, --help      Show help for command

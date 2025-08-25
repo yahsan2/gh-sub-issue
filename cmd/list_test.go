@@ -190,6 +190,49 @@ func TestFormatTTY(t *testing.T) {
 	}
 }
 
+func TestListCommandFlags(t *testing.T) {
+	// Test that the parent flag exists and is properly defined
+	parentFlag := listCmd.Flags().Lookup("parent")
+	if parentFlag == nil {
+		t.Errorf("--parent flag not found")
+	}
+	if parentFlag.Usage != "Show parent issue instead of sub-issues" {
+		t.Errorf("--parent flag usage incorrect, got: %s", parentFlag.Usage)
+	}
+	
+	// Test that the flag is a boolean flag
+	if parentFlag.Value.Type() != "bool" {
+		t.Errorf("--parent flag should be boolean, got: %s", parentFlag.Value.Type())
+	}
+}
+
+func TestFormatTTYParent(t *testing.T) {
+	result := &ListResult{
+		Parent: ParentIssue{
+			Number: 123,
+			Title:  "Main Feature Implementation", 
+			State:  "open",
+		},
+		SubIssues: []SubIssue{}, // Empty for parent display
+		Total:     0,
+		OpenCount: 0,
+	}
+
+	output := formatTTYParent(result)
+	
+	expectedContents := []string{
+		"Parent Issue: #123",
+		"Main Feature Implementation",
+		"[open]",
+	}
+	
+	for _, expected := range expectedContents {
+		if !containsString(output, expected) {
+			t.Errorf("formatTTYParent() output missing expected string: %q\nFull output:\n%s", expected, output)
+		}
+	}
+}
+
 func TestFormatJSONWithFields(t *testing.T) {
 	result := &ListResult{
 		Parent: ParentIssue{
