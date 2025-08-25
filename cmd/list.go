@@ -17,12 +17,13 @@ var (
 	listJSONFlag   string
 	listWebFlag    bool
 	listRepoFlag   string
+	listParentFlag bool
 )
 
 var listCmd = &cobra.Command{
 	Use:   "list <parent-issue>",
-	Short: "List all sub-issues for a parent issue",
-	Long: `List all sub-issues connected to a parent issue.
+	Short: "List all sub-issues for a parent issue or show parent issue",
+	Long: `List all sub-issues connected to a parent issue, or show the parent issue of a sub-issue.
 
 Supports multiple output formats:
 - Colored output for terminal (TTY)
@@ -32,6 +33,9 @@ Supports multiple output formats:
 Examples:
   # List sub-issues for issue #123
   gh sub-issues list 123
+  
+  # Show parent issue of sub-issue #456
+  gh sub-issues list 456 --parent
   
   # List with URL
   gh sub-issues list https://github.com/owner/repo/issues/123
@@ -61,6 +65,7 @@ func init() {
 	listCmd.Flags().StringVar(&listJSONFlag, "json", "", "Output JSON with the specified fields")
 	listCmd.Flags().BoolVarP(&listWebFlag, "web", "w", false, "Open in web browser")
 	listCmd.Flags().StringVarP(&listRepoFlag, "repo", "R", "", "Repository in OWNER/REPO format")
+	listCmd.Flags().BoolVar(&listParentFlag, "parent", false, "Show parent issue instead of sub-issues")
 }
 
 // SubIssue represents a sub-issue
@@ -85,6 +90,77 @@ type ListResult struct {
 	SubIssues []SubIssue  `json:"subIssues"`
 	Total     int         `json:"total"`
 	OpenCount int         `json:"openCount"`
+}
+
+// getParentIssue fetches the parent issue for a sub-issue
+func getParentIssue(client *api.GraphQLClient, owner, repo string, number int) (*ListResult, error) {
+	// Query to get the parent issue of a sub-issue
+	parentQuery := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) {
+					id
+					number
+					title
+					state
+					parent {
+						number
+						title
+						state
+					}
+				}
+			}
+		}`
+	
+	var response struct {
+		Repository struct {
+			Issue struct {
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+				Title  string `json:"title"`
+				State  string `json:"state"`
+				Parent *struct {
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+					State  string `json:"state"`
+				} `json:"parent"`
+			} `json:"issue"`
+		} `json:"repository"`
+	}
+	
+	variables := map[string]interface{}{
+		"owner":  owner,
+		"repo":   repo,
+		"number": number,
+	}
+	
+	err := client.Do(parentQuery, variables, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get issue #%d: %w", number, err)
+	}
+	
+	if response.Repository.Issue.ID == "" {
+		return nil, fmt.Errorf("issue #%d not found in %s/%s", number, owner, repo)
+	}
+	
+	// Check if this issue has a parent
+	if response.Repository.Issue.Parent == nil {
+		return nil, fmt.Errorf("issue #%d is not a sub-issue (no parent found)", number)
+	}
+	
+	// Build result with parent as the main content
+	result := &ListResult{
+		Parent: ParentIssue{
+			Number: response.Repository.Issue.Parent.Number,
+			Title:  response.Repository.Issue.Parent.Title,
+			State:  strings.ToLower(response.Repository.Issue.Parent.State),
+		},
+		SubIssues: []SubIssue{}, // Empty for parent query
+		Total:     0,
+		OpenCount: 0,
+	}
+	
+	return result, nil
 }
 
 // getSubIssues fetches sub-issues for a parent issue
@@ -229,6 +305,17 @@ func getSubIssues(client *api.GraphQLClient, owner, repo string, number int, lim
 	}
 	
 	return result, nil
+}
+
+// formatTTYParent formats output for parent issue display
+func formatTTYParent(result *ListResult) string {
+	var output strings.Builder
+	
+	// Parent issue details
+	output.WriteString(fmt.Sprintf("\nParent Issue: #%d - %s [%s]\n\n", 
+		result.Parent.Number, result.Parent.Title, result.Parent.State))
+	
+	return output.String()
 }
 
 // formatTTY formats output for terminal with colors
@@ -431,10 +518,20 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 	
-	// Get sub-issues
-	result, err := getSubIssues(client, parentRef.Owner, parentRef.Repo, parentRef.Number, listLimitFlag)
-	if err != nil {
-		return err
+	// Get result based on --parent flag
+	var result *ListResult
+	if listParentFlag {
+		// Get parent issue instead of sub-issues
+		result, err = getParentIssue(client, parentRef.Owner, parentRef.Repo, parentRef.Number)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Get sub-issues (default behavior)
+		result, err = getSubIssues(client, parentRef.Owner, parentRef.Repo, parentRef.Number, listLimitFlag)
+		if err != nil {
+			return err
+		}
 	}
 	
 	// Format output
@@ -458,11 +555,20 @@ func runList(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to format JSON: %w", err)
 		}
 	} else if term.IsTerminal(os.Stdout) {
-		// TTY output with colors
-		output = formatTTY(result)
+		// TTY output with colors - choose format based on parent flag
+		if listParentFlag {
+			output = formatTTYParent(result)
+		} else {
+			output = formatTTY(result)
+		}
 	} else {
-		// Plain text output
-		output = formatPlain(result)
+		// Plain text output - for parent mode, just show parent info
+		if listParentFlag {
+			output = fmt.Sprintf("%d\t%s\t%s\n", 
+				result.Parent.Number, result.Parent.State, result.Parent.Title)
+		} else {
+			output = formatPlain(result)
+		}
 	}
 	
 	// Print output
