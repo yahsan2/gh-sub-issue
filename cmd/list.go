@@ -222,10 +222,8 @@ func getSubIssues(client *api.GraphQLClient, owner, repo string, number int, lim
 		}
 		
 		// Apply state filter
-		if listStateFlag != "all" {
-			if listStateFlag != subIssue.State {
-				continue
-			}
+		if !shouldIncludeIssue(subIssue.State) {
+			continue
 		}
 		
 		result.SubIssues = append(result.SubIssues, subIssue)
@@ -237,6 +235,11 @@ func getSubIssues(client *api.GraphQLClient, owner, repo string, number int, lim
 	}
 	
 	return result, nil
+}
+
+// shouldIncludeIssue checks if an issue should be included based on state filter
+func shouldIncludeIssue(issueState string) bool {
+	return listStateFlag == "all" || listStateFlag == issueState
 }
 
 // getParentIssue fetches the parent issue of a sub-issue
@@ -314,7 +317,7 @@ func getParentIssue(client *api.GraphQLClient, owner, repo string, number int) (
 		}
 		
 		// Apply state filter
-		if listStateFlag == "all" || listStateFlag == parentIssue.State {
+		if shouldIncludeIssue(parentIssue.State) {
 			result.SubIssues = append(result.SubIssues, parentIssue)
 			result.Total++
 			if parentIssue.State == "open" {
