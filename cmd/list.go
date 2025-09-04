@@ -12,17 +12,18 @@ import (
 )
 
 var (
-	listStateFlag  string
-	listLimitFlag  int
-	listJSONFlag   string
-	listWebFlag    bool
-	listRepoFlag   string
+	listStateFlag    string
+	listLimitFlag    int
+	listJSONFlag     string
+	listWebFlag      bool
+	listRepoFlag     string
+	listRelationFlag string
 )
 
 var listCmd = &cobra.Command{
-	Use:   "list <parent-issue>",
-	Short: "List all sub-issues for a parent issue",
-	Long: `List all sub-issues connected to a parent issue.
+	Use:   "list <issue>",
+	Short: "List issues related to the specified issue",
+	Long: `List issues related to the specified issue based on relationship type.
 
 Supports multiple output formats:
 - Colored output for terminal (TTY)
@@ -30,8 +31,14 @@ Supports multiple output formats:
 - JSON for programmatic use (--json)
 
 Examples:
-  # List sub-issues for issue #123
+  # List child sub-issues for issue #123 (default)
   gh sub-issues list 123
+  
+  # List parent issue for sub-issue #456
+  gh sub-issues list 456 --relation parent
+  
+  # List sibling issues for sub-issue #789
+  gh sub-issues list 789 --relation siblings
   
   # List with URL
   gh sub-issues list https://github.com/owner/repo/issues/123
@@ -56,8 +63,9 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	
 	// Add flags
+	listCmd.Flags().StringVar(&listRelationFlag, "relation", "children", "Relation type: {children|parent|siblings}")
 	listCmd.Flags().StringVarP(&listStateFlag, "state", "s", "open", "Filter by state: {open|closed|all}")
-	listCmd.Flags().IntVarP(&listLimitFlag, "limit", "L", 30, "Maximum number of sub-issues to display")
+	listCmd.Flags().IntVarP(&listLimitFlag, "limit", "L", 30, "Maximum number of issues to display")
 	listCmd.Flags().StringVar(&listJSONFlag, "json", "", "Output JSON with the specified fields")
 	listCmd.Flags().BoolVarP(&listWebFlag, "web", "w", false, "Open in web browser")
 	listCmd.Flags().StringVarP(&listRepoFlag, "repo", "R", "", "Repository in OWNER/REPO format")
@@ -214,10 +222,8 @@ func getSubIssues(client *api.GraphQLClient, owner, repo string, number int, lim
 		}
 		
 		// Apply state filter
-		if listStateFlag != "all" {
-			if listStateFlag != subIssue.State {
-				continue
-			}
+		if !shouldIncludeIssue(subIssue.State) {
+			continue
 		}
 		
 		result.SubIssues = append(result.SubIssues, subIssue)
@@ -231,25 +237,243 @@ func getSubIssues(client *api.GraphQLClient, owner, repo string, number int, lim
 	return result, nil
 }
 
+// shouldIncludeIssue checks if an issue should be included based on state filter
+func shouldIncludeIssue(issueState string) bool {
+	return listStateFlag == "all" || listStateFlag == issueState
+}
+
+// getParentIssue fetches the parent issue of a sub-issue
+func getParentIssue(client *api.GraphQLClient, owner, repo string, number int) (*ListResult, error) {
+	// Get the issue and its parent
+	parentQuery := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) {
+					id
+					number
+					title
+					state
+					parent {
+						number
+						title
+						state
+					}
+				}
+			}
+		}`
+	
+	var response struct {
+		Repository struct {
+			Issue struct {
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+				Title  string `json:"title"`
+				State  string `json:"state"`
+				Parent *struct {
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+					State  string `json:"state"`
+				} `json:"parent"`
+			} `json:"issue"`
+		} `json:"repository"`
+	}
+	
+	variables := map[string]interface{}{
+		"owner":  owner,
+		"repo":   repo,
+		"number": number,
+	}
+	
+	err := client.Do(parentQuery, variables, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get issue #%d: %w", number, err)
+	}
+	
+	if response.Repository.Issue.ID == "" {
+		return nil, fmt.Errorf("issue #%d not found in %s/%s", number, owner, repo)
+	}
+	
+	// Build result
+	result := &ListResult{
+		Parent: ParentIssue{
+			Number: response.Repository.Issue.Number,
+			Title:  response.Repository.Issue.Title,
+			State:  strings.ToLower(response.Repository.Issue.State),
+		},
+		SubIssues: []SubIssue{},
+		Total:     0,
+		OpenCount: 0,
+	}
+	
+	// If there's a parent, add it as a sub-issue for consistency
+	if response.Repository.Issue.Parent != nil {
+		parent := response.Repository.Issue.Parent
+		parentIssue := SubIssue{
+			Number:    parent.Number,
+			Title:     parent.Title,
+			State:     strings.ToLower(parent.State),
+			URL:       fmt.Sprintf("https://github.com/%s/%s/issues/%d", owner, repo, parent.Number),
+			Assignees: []string{},
+		}
+		
+		// Apply state filter
+		if shouldIncludeIssue(parentIssue.State) {
+			result.SubIssues = append(result.SubIssues, parentIssue)
+			result.Total++
+			if parentIssue.State == "open" {
+				result.OpenCount++
+			}
+		}
+	}
+	
+	return result, nil
+}
+
+// getSiblingIssues fetches sibling issues of a sub-issue
+func getSiblingIssues(client *api.GraphQLClient, owner, repo string, number int, limit int) (*ListResult, error) {
+	// First get the issue and its parent
+	parentQuery := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) {
+					id
+					number
+					title
+					state
+					parent {
+						number
+						title
+						state
+					}
+				}
+			}
+		}`
+	
+	var parentResponse struct {
+		Repository struct {
+			Issue struct {
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+				Title  string `json:"title"`
+				State  string `json:"state"`
+				Parent *struct {
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+					State  string `json:"state"`
+				} `json:"parent"`
+			} `json:"issue"`
+		} `json:"repository"`
+	}
+	
+	variables := map[string]interface{}{
+		"owner":  owner,
+		"repo":   repo,
+		"number": number,
+	}
+	
+	err := client.Do(parentQuery, variables, &parentResponse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get issue #%d: %w", number, err)
+	}
+	
+	if parentResponse.Repository.Issue.ID == "" {
+		return nil, fmt.Errorf("issue #%d not found in %s/%s", number, owner, repo)
+	}
+	
+	// If no parent, return empty result
+	if parentResponse.Repository.Issue.Parent == nil {
+		return &ListResult{
+			Parent: ParentIssue{
+				Number: parentResponse.Repository.Issue.Number,
+				Title:  parentResponse.Repository.Issue.Title,
+				State:  strings.ToLower(parentResponse.Repository.Issue.State),
+			},
+			SubIssues: []SubIssue{},
+			Total:     0,
+			OpenCount: 0,
+		}, nil
+	}
+	
+	// Get all sub-issues of the parent
+	parentNumber := parentResponse.Repository.Issue.Parent.Number
+	parentResult, err := getSubIssues(client, owner, repo, parentNumber, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get siblings: %w", err)
+	}
+	
+	// Filter out the current issue from siblings
+	var siblings []SubIssue
+	for _, issue := range parentResult.SubIssues {
+		if issue.Number != number {
+			siblings = append(siblings, issue)
+		}
+	}
+	
+	// Build result with current issue as parent and siblings as sub-issues
+	result := &ListResult{
+		Parent: ParentIssue{
+			Number: parentResponse.Repository.Issue.Number,
+			Title:  parentResponse.Repository.Issue.Title,
+			State:  strings.ToLower(parentResponse.Repository.Issue.State),
+		},
+		SubIssues: siblings,
+		Total:     len(siblings),
+		OpenCount: 0,
+	}
+	
+	// Count open siblings
+	for _, sibling := range siblings {
+		if sibling.State == "open" {
+			result.OpenCount++
+		}
+	}
+	
+	return result, nil
+}
+
 // formatTTY formats output for terminal with colors
 func formatTTY(result *ListResult) string {
 	var output strings.Builder
 	
-	// Header
-	output.WriteString(fmt.Sprintf("\nParent: #%d - %s\n\n", result.Parent.Number, result.Parent.Title))
+	// Header varies based on relation type
+	var headerLabel string
+	var emptyMessage string
+	switch listRelationFlag {
+	case "children":
+		headerLabel = "Parent"
+		emptyMessage = "No sub-issues found."
+	case "parent":
+		headerLabel = "Issue"
+		emptyMessage = "No parent issue found."
+	case "siblings":
+		headerLabel = "Issue"
+		emptyMessage = "No sibling issues found."
+	}
+	
+	output.WriteString(fmt.Sprintf("\n%s: #%d - %s\n\n", headerLabel, result.Parent.Number, result.Parent.Title))
 	
 	if result.Total == 0 {
-		output.WriteString("No sub-issues found.\n")
+		output.WriteString(emptyMessage + "\n")
 		return output.String()
 	}
 	
-	// Summary
+	// Summary varies based on relation type
 	closedCount := result.Total - result.OpenCount
-	output.WriteString(fmt.Sprintf("SUB-ISSUES (%d total, %d open, %d closed)\n", 
-		result.Total, result.OpenCount, closedCount))
+	var summaryLabel string
+	switch listRelationFlag {
+	case "children":
+		summaryLabel = "SUB-ISSUES"
+	case "parent":
+		summaryLabel = "PARENT ISSUE"
+	case "siblings":
+		summaryLabel = "SIBLING ISSUES"
+	}
+	
+	output.WriteString(fmt.Sprintf("%s (%d total, %d open, %d closed)\n", 
+		summaryLabel, result.Total, result.OpenCount, closedCount))
 	output.WriteString("─────────────────────────────\n")
 	
-	// Sub-issues
+	// Issues
 	for _, issue := range result.SubIssues {
 		// State icon
 		icon := "🔵" // open
@@ -308,11 +532,12 @@ func formatJSONWithFields(result *ListResult, fields []string) (string, error) {
 		"parent.state":  true,
 		"total":         true,
 		"openCount":     true,
+		"relation":      true,
 	}
 	
 	for _, field := range fields {
 		if !validFields[field] {
-			return "", fmt.Errorf("invalid field: %s. Valid fields are: number, title, state, url, assignees, parent.number, parent.title, parent.state, total, openCount", field)
+			return "", fmt.Errorf("invalid field: %s. Valid fields are: number, title, state, url, assignees, parent.number, parent.title, parent.state, total, openCount, relation", field)
 		}
 	}
 	
@@ -346,6 +571,9 @@ func formatJSONWithFields(result *ListResult, fields []string) (string, error) {
 	}
 	if fieldSet["openCount"] {
 		output["openCount"] = result.OpenCount
+	}
+	if fieldSet["relation"] {
+		output["relation"] = listRelationFlag
 	}
 	
 	// Add sub-issues with selected fields
@@ -391,6 +619,11 @@ func truncate(s string, max int) string {
 
 // runList is the main command logic
 func runList(cmd *cobra.Command, args []string) error {
+	// Validate relation flag
+	if listRelationFlag != "children" && listRelationFlag != "parent" && listRelationFlag != "siblings" {
+		return fmt.Errorf("invalid relation type: %s (must be children, parent, or siblings)", listRelationFlag)
+	}
+	
 	// Get default repository
 	var defaultOwner, defaultRepo string
 	var err error
@@ -411,16 +644,16 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 	}
 	
-	// Parse parent issue reference
-	parentRef, err := parseIssueReference(args[0], defaultOwner, defaultRepo)
+	// Parse issue reference
+	issueRef, err := parseIssueReference(args[0], defaultOwner, defaultRepo)
 	if err != nil {
-		return fmt.Errorf("invalid parent issue: %w", err)
+		return fmt.Errorf("invalid issue reference: %w", err)
 	}
 	
 	// Handle --web flag
 	if listWebFlag {
 		url := fmt.Sprintf("https://github.com/%s/%s/issues/%d", 
-			parentRef.Owner, parentRef.Repo, parentRef.Number)
+			issueRef.Owner, issueRef.Repo, issueRef.Number)
 		fmt.Fprintf(cmd.OutOrStderr(), "Opening %s in browser...\n", url)
 		return openInBrowser(url)
 	}
@@ -431,8 +664,16 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 	
-	// Get sub-issues
-	result, err := getSubIssues(client, parentRef.Owner, parentRef.Repo, parentRef.Number, listLimitFlag)
+	// Get issues based on relation type
+	var result *ListResult
+	switch listRelationFlag {
+	case "children":
+		result, err = getSubIssues(client, issueRef.Owner, issueRef.Repo, issueRef.Number, listLimitFlag)
+	case "parent":
+		result, err = getParentIssue(client, issueRef.Owner, issueRef.Repo, issueRef.Number)
+	case "siblings":
+		result, err = getSiblingIssues(client, issueRef.Owner, issueRef.Repo, issueRef.Number, listLimitFlag)
+	}
 	if err != nil {
 		return err
 	}
@@ -444,7 +685,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		// JSON output requires field specification
 		if listJSONFlag == "" {
 			// Print available fields when no fields specified
-			fmt.Fprintln(cmd.OutOrStderr(), "Specify one or more comma-separated fields for `--json`:\n  assignees\n  number\n  openCount\n  parent.number\n  parent.state\n  parent.title\n  state\n  title\n  total\n  url")
+			fmt.Fprintln(cmd.OutOrStderr(), "Specify one or more comma-separated fields for `--json`:\n  assignees\n  number\n  openCount\n  parent.number\n  parent.state\n  parent.title\n  relation\n  state\n  title\n  total\n  url")
 			return fmt.Errorf("")
 		}
 		

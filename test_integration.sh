@@ -74,7 +74,7 @@ echo ""
 echo "=== Basic Command Tests ==="
 run_test "Help command" "./gh-sub-issue --help" "A GitHub CLI extension that adds sub-issue management"
 run_test "Add help" "./gh-sub-issue add --help" "Link an existing issue to a parent issue"
-run_test "List help" "./gh-sub-issue list --help" "List all sub-issues connected to a parent issue"
+run_test "List help" "./gh-sub-issue list --help" "List issues related to the specified issue based on relationship type"
 run_test "Remove help" "./gh-sub-issue remove --help" "Remove the relationship between sub-issues"
 
 # Test 2: Version
