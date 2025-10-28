@@ -49,37 +49,101 @@ func TestTruncate(t *testing.T) {
 }
 
 func TestFormatPlain(t *testing.T) {
-	result := &ListResult{
-		Parent: ParentIssue{
-			Number: 1,
-			Title:  "Parent Issue",
-			State:  "open",
-		},
-		SubIssues: []SubIssue{
-			{
-				Number:    2,
-				Title:     "First sub-issue",
-				State:     "open",
-				URL:       "https://github.com/owner/repo/issues/2",
-				Assignees: []string{"user1", "user2"},
+	tests := []struct {
+		name             string
+		result           *ListResult
+		relationFlag     string
+		expected         string
+	}{
+		{
+			name: "with sub-issues",
+			result: &ListResult{
+				Parent: ParentIssue{
+					Number: 1,
+					Title:  "Parent Issue",
+					State:  "open",
+				},
+				SubIssues: []SubIssue{
+					{
+						Number:    2,
+						Title:     "First sub-issue",
+						State:     "open",
+						URL:       "https://github.com/owner/repo/issues/2",
+						Assignees: []string{"user1", "user2"},
+					},
+					{
+						Number:    3,
+						Title:     "Second sub-issue",
+						State:     "closed",
+						URL:       "https://github.com/owner/repo/issues/3",
+						Assignees: []string{},
+					},
+				},
+				Total:     2,
+				OpenCount: 1,
 			},
-			{
-				Number:    3,
-				Title:     "Second sub-issue",
-				State:     "closed",
-				URL:       "https://github.com/owner/repo/issues/3",
-				Assignees: []string{},
-			},
+			relationFlag: "children",
+			expected:     "2\topen\tFirst sub-issue\tuser1,user2\n3\tclosed\tSecond sub-issue\t\n",
 		},
-		Total:     2,
-		OpenCount: 1,
+		{
+			name: "empty result - children",
+			result: &ListResult{
+				Parent: ParentIssue{
+					Number: 1,
+					Title:  "Parent Issue",
+					State:  "open",
+				},
+				SubIssues: []SubIssue{},
+				Total:     0,
+				OpenCount: 0,
+			},
+			relationFlag: "children",
+			expected:     "No sub-issues found.\n",
+		},
+		{
+			name: "empty result - parent",
+			result: &ListResult{
+				Parent: ParentIssue{
+					Number: 1,
+					Title:  "Current Issue",
+					State:  "open",
+				},
+				SubIssues: []SubIssue{},
+				Total:     0,
+				OpenCount: 0,
+			},
+			relationFlag: "parent",
+			expected:     "No parent issue found.\n",
+		},
+		{
+			name: "empty result - siblings",
+			result: &ListResult{
+				Parent: ParentIssue{
+					Number: 1,
+					Title:  "Current Issue",
+					State:  "open",
+				},
+				SubIssues: []SubIssue{},
+				Total:     0,
+				OpenCount: 0,
+			},
+			relationFlag: "siblings",
+			expected:     "No sibling issues found.\n",
+		},
 	}
 
-	expected := "2\topen\tFirst sub-issue\tuser1,user2\n3\tclosed\tSecond sub-issue\t\n"
-	output := formatPlain(result)
-	
-	if output != expected {
-		t.Errorf("formatPlain() output mismatch\nGot:\n%s\nExpected:\n%s", output, expected)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set the global flag for the test
+			originalFlag := listRelationFlag
+			listRelationFlag = tt.relationFlag
+			defer func() { listRelationFlag = originalFlag }()
+
+			output := formatPlain(tt.result)
+			if output != tt.expected {
+				t.Errorf("formatPlain() output mismatch\nGot:\n%s\nExpected:\n%s", output, tt.expected)
+			}
+		})
 	}
 }
 
