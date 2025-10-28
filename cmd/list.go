@@ -499,13 +499,28 @@ func formatTTY(result *ListResult) string {
 // formatPlain formats output as plain text (tab-separated)
 func formatPlain(result *ListResult) string {
 	var output strings.Builder
-	
+
+	// Handle empty result
+	if result.Total == 0 {
+		var emptyMessage string
+		switch listRelationFlag {
+		case "parent":
+			emptyMessage = "No parent issue found."
+		case "siblings":
+			emptyMessage = "No sibling issues found."
+		default: // "children" or default case
+			emptyMessage = "No sub-issues found."
+		}
+		output.WriteString(emptyMessage + "\n")
+		return output.String()
+	}
+
 	for _, issue := range result.SubIssues {
 		assignees := strings.Join(issue.Assignees, ",")
-		output.WriteString(fmt.Sprintf("%d\t%s\t%s\t%s\n", 
+		output.WriteString(fmt.Sprintf("%d\t%s\t%s\t%s\n",
 			issue.Number, issue.State, issue.Title, assignees))
 	}
-	
+
 	return output.String()
 }
 
