@@ -15,7 +15,7 @@ import (
 var repoFlag string
 
 var addCmd = &cobra.Command{
-	Use:   "add <parent-issue> <sub-issue>",
+	Use:   "add <parent-issue> <sub-issue> [sub-issue...]",
 	Short: "Add an existing issue as a sub-issue to a parent issue",
 	Long: `Link an existing issue to a parent issue using GitHub's issue hierarchy feature.
 
@@ -23,12 +23,15 @@ Examples:
   # Link issues by numbers
   gh sub-issues add 123 456
   
+  # Link multiple sub-issues
+  gh sub-issues add 123 456 457 458
+  
   # Link using parent URL
   gh sub-issues add https://github.com/owner/repo/issues/123 456
   
   # Cross-repository linking
   gh sub-issues add 123 456 --repo owner/repo`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.MinimumNArgs(2),
 	RunE: runAdd,
 }
 
@@ -241,22 +244,28 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 	
-	// Parse parent and sub-issue references
+	// Parse parent issue reference
 	parentRef, err := parseIssueReference(args[0], defaultOwner, defaultRepo)
 	if err != nil {
 		return fmt.Errorf("invalid parent issue: %w", err)
 	}
 	
-	subRef, err := parseIssueReference(args[1], defaultOwner, defaultRepo)
-	if err != nil {
-		return fmt.Errorf("invalid sub-issue: %w", err)
-	}
-	
-	// Check for circular dependency
-	if parentRef.Owner == subRef.Owner && 
-	   parentRef.Repo == subRef.Repo && 
-	   parentRef.Number == subRef.Number {
-		return fmt.Errorf("cannot add issue as its own sub-issue")
+	// Parse all sub-issue references
+	var subRefs []*IssueReference
+	for _, arg := range args[1:] {
+		subRef, err := parseIssueReference(arg, defaultOwner, defaultRepo)
+		if err != nil {
+			return fmt.Errorf("invalid sub-issue %s: %w", arg, err)
+		}
+		
+		// Check for circular dependency
+		if parentRef.Owner == subRef.Owner && 
+		   parentRef.Repo == subRef.Repo && 
+		   parentRef.Number == subRef.Number {
+			return fmt.Errorf("cannot add issue as its own sub-issue")
+		}
+		
+		subRefs = append(subRefs, subRef)
 	}
 	
 	// Create GraphQL client using default options
@@ -265,7 +274,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 	
-	// Get node IDs for both issues
+	// Get parent issue node ID
 	fmt.Fprintf(cmd.OutOrStderr(), "Getting parent issue #%d from %s/%s...\n", 
 		parentRef.Number, parentRef.Owner, parentRef.Repo)
 	
@@ -283,36 +292,66 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	
-	fmt.Fprintf(cmd.OutOrStderr(), "Getting sub-issue #%d from %s/%s...\n", 
-		subRef.Number, subRef.Owner, subRef.Repo)
+	// Add each sub-issue
+	var addedIssues []string
+	var errors []error
 	
-	subID, err := getIssueNodeID(client, subRef.Owner, subRef.Repo, subRef.Number)
-	if err != nil {
-		// Check if it's a permission error
-		if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "403") {
-			return fmt.Errorf("insufficient permissions to access %s/%s", 
-				subRef.Owner, subRef.Repo)
+	for _, subRef := range subRefs {
+		fmt.Fprintf(cmd.OutOrStderr(), "Adding sub-issue #%d...\n", subRef.Number)
+		
+		subID, err := getIssueNodeID(client, subRef.Owner, subRef.Repo, subRef.Number)
+		if err != nil {
+			// Check if it's a permission error
+			if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "403") {
+				err = fmt.Errorf("insufficient permissions to access %s/%s", 
+					subRef.Owner, subRef.Repo)
+			}
+			errors = append(errors, err)
+			continue
 		}
-		return err
+		
+		// Link the issues
+		parentNum, subNum, err := addSubIssue(client, parentID, subID)
+		if err != nil {
+			// Check for specific error cases
+			if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "403") {
+				err = fmt.Errorf("insufficient permissions to modify issues in this repository")
+			} else if strings.Contains(err.Error(), "already") {
+				err = fmt.Errorf("issue #%d is already a sub-issue of #%d", 
+					subRef.Number, parentRef.Number)
+			}
+			errors = append(errors, err)
+			continue
+		}
+		
+		addedIssues = append(addedIssues, fmt.Sprintf("#%d", subNum))
+		_ = parentNum // parent number is the same for all iterations
 	}
 	
-	// Link the issues
-	fmt.Fprintf(cmd.OutOrStderr(), "Linking issues...\n")
-	parentNum, subNum, err := addSubIssue(client, parentID, subID)
-	if err != nil {
-		// Check for specific error cases
-		if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "403") {
-			return fmt.Errorf("insufficient permissions to modify issues in this repository")
+	// Display results
+	if len(addedIssues) > 0 {
+		if len(addedIssues) == 1 {
+			fmt.Fprintf(cmd.OutOrStdout(), "✓ Added issue %s as a sub-issue of #%d\n", 
+				addedIssues[0], parentRef.Number)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "✓ Added %d sub-issues to parent #%d:\n", 
+				len(addedIssues), parentRef.Number)
+			for _, issue := range addedIssues {
+				fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", issue)
+			}
 		}
-		if strings.Contains(err.Error(), "already") {
-			return fmt.Errorf("issue #%d is already a sub-issue of #%d", 
-				subRef.Number, parentRef.Number)
-		}
-		return err
 	}
 	
-	// Success message
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Added issue #%d as a sub-issue of #%d\n", subNum, parentNum)
+	// Display errors if any
+	if len(errors) > 0 {
+		fmt.Fprintln(cmd.OutOrStderr(), "\nErrors encountered:")
+		for _, err := range errors {
+			fmt.Fprintf(cmd.OutOrStderr(), "  - %v\n", err)
+		}
+		if len(addedIssues) == 0 {
+			return fmt.Errorf("failed to add any sub-issues")
+		}
+	}
 	
 	_ = ctx // Use context if needed in future
 	return nil
