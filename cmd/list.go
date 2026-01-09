@@ -673,8 +673,12 @@ func runList(cmd *cobra.Command, args []string) error {
 		return openInBrowser(url)
 	}
 	
-	// Create GraphQL client
-	client, err := api.NewGraphQLClient(api.ClientOptions{})
+	// Create GraphQL client with sub_issues feature header
+	client, err := api.NewGraphQLClient(api.ClientOptions{
+		Headers: map[string]string{
+			"GraphQL-Features": "sub_issues",
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}

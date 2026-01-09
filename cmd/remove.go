@@ -79,8 +79,12 @@ func runRemove(cmd *cobra.Command, args []string) error {
 		subRefs = append(subRefs, subRef)
 	}
 
-	// Create GitHub API client
-	opts := api.ClientOptions{}
+	// Create GitHub API client with sub_issues feature header
+	opts := api.ClientOptions{
+		Headers: map[string]string{
+			"GraphQL-Features": "sub_issues",
+		},
+	}
 	client, err := api.NewGraphQLClient(opts)
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
