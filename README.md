@@ -11,6 +11,7 @@ A GitHub CLI extension for managing sub-issues (child issues). Create hierarchic
 - 🔗 **Link existing issues** - Connect existing issues as sub-issues to a parent issue
 - ➕ **Create sub-issues** - Create new issues directly linked to a parent
 - 📋 **List sub-issues** - View all sub-issues connected to a parent issue
+- 🔄 **Reorder sub-issues** - Change the order of sub-issues within their parent
 - ❌ **Remove sub-issues** - Unlink sub-issues from their parent without deleting them
 - 🎨 **Multiple output formats** - Support for TTY (colored), plain text, and JSON output
 - 🔄 **Cross-repository support** - Work with issues across different repositories
@@ -102,6 +103,33 @@ gh sub-issue list 123 --json parent.number,parent.title,total,openCount
 
 # Using URL
 gh sub-issue list https://github.com/owner/repo/issues/123
+```
+
+### Reorder sub-issues
+
+Change the order of sub-issues within their parent:
+
+```bash
+# Move sub-issue #456 to first position in parent #123
+gh sub-issue reorder 123 456 first
+
+# Move sub-issue #456 to position 3
+gh sub-issue reorder 123 456 3
+
+# Move sub-issue #456 after sub-issue #789
+gh sub-issue reorder 123 456 after:789
+
+# Move sub-issue #456 before sub-issue #789
+gh sub-issue reorder 123 456 before:789
+
+# Move sub-issue #456 to last position
+gh sub-issue reorder 123 456 last
+
+# Using URLs
+gh sub-issue reorder https://github.com/owner/repo/issues/123 456 first
+
+# Cross-repository
+gh sub-issue reorder 123 456 first --repo owner/repo
 ```
 
 ### Remove sub-issues
@@ -197,6 +225,31 @@ gh sub-issue list 123 --json parent.number,parent.title,total,openCount
 
 # Mixed field selection
 gh sub-issue list 123 --json number,state,assignees,parent.title
+```
+
+### `gh sub-issue reorder`
+
+Reorder a sub-issue to a different position within its parent.
+
+```
+Usage:
+  gh sub-issue reorder <parent-issue> <sub-issue> <position> [flags]
+
+Arguments:
+  parent-issue    Parent issue number or URL
+  sub-issue       Sub-issue number or URL to reorder
+  position        New position: number (1-based), "first", "last", "after:N", "before:N"
+
+Flags:
+  -R, --repo      Repository in OWNER/REPO format
+  -h, --help      Show help for command
+
+Position formats:
+  1, 2, 3, ...    Move to specific position (1 = first)
+  first           Move to the beginning
+  last            Move to the end
+  after:123       Move after issue #123
+  before:456      Move before issue #456
 ```
 
 ### `gh sub-issue remove`
