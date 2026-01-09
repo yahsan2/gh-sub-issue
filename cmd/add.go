@@ -259,8 +259,12 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot add issue as its own sub-issue")
 	}
 	
-	// Create GraphQL client using default options
-	client, err := api.NewGraphQLClient(api.ClientOptions{})
+	// Create GraphQL client with sub_issues feature header
+	client, err := api.NewGraphQLClient(api.ClientOptions{
+		Headers: map[string]string{
+			"GraphQL-Features": "sub_issues",
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
