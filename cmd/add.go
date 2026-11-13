@@ -13,6 +13,7 @@ import (
 )
 
 var repoFlag string
+var replaceParentFlag bool
 
 var addCmd = &cobra.Command{
 	Use:   "add <parent-issue> <sub-issue>",
@@ -27,7 +28,10 @@ Examples:
   gh sub-issues add https://github.com/owner/repo/issues/123 456
   
   # Cross-repository linking
-  gh sub-issues add 123 456 --repo owner/repo`,
+  gh sub-issues add 123 456 --repo owner/repo
+
+  # Move an issue that already has a parent under a new parent
+  gh sub-issue add 123 456 --replace-parent`,
 	Args: cobra.ExactArgs(2),
 	RunE: runAdd,
 }
@@ -38,6 +42,7 @@ func init() {
 	
 	// Add flags
 	addCmd.Flags().StringVarP(&repoFlag, "repo", "R", "", "Repository in OWNER/REPO format")
+	addCmd.Flags().BoolVar(&replaceParentFlag, "replace-parent", false, "Move the issue from its current parent, if it has one")
 }
 
 // IssueReference represents a parsed issue reference
@@ -145,49 +150,166 @@ func getIssueNodeID(client *api.GraphQLClient, owner, repo string, number int) (
 	return response.Repository.Issue.ID, nil
 }
 
-// addSubIssue links a sub-issue to a parent issue
-func addSubIssue(client *api.GraphQLClient, parentID, subIssueID string) (int, int, error) {
+// issueParent is an issue's parent as GitHub reports it
+type issueParent struct {
+	ID  string
+	Ref IssueReference
+}
+
+// getIssueNodeIDAndParent gets the issue's GraphQL node ID and its current
+// parent in one query. The parent is nil when the issue has none.
+func getIssueNodeIDAndParent(client *api.GraphQLClient, owner, repo string, number int) (string, *issueParent, error) {
+	query := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) {
+					id
+					parent {
+						id
+						number
+						repository {
+							name
+							owner {
+								login
+							}
+						}
+					}
+				}
+			}
+		}`
+
+	variables := map[string]interface{}{
+		"owner":  owner,
+		"repo":   repo,
+		"number": number,
+	}
+
+	var response struct {
+		Repository struct {
+			Issue struct {
+				ID     string `json:"id"`
+				Parent *struct {
+					ID         string `json:"id"`
+					Number     int    `json:"number"`
+					Repository struct {
+						Name  string `json:"name"`
+						Owner struct {
+							Login string `json:"login"`
+						} `json:"owner"`
+					} `json:"repository"`
+				} `json:"parent"`
+			} `json:"issue"`
+		} `json:"repository"`
+	}
+
+	if err := client.Do(query, variables, &response); err != nil {
+		return "", nil, fmt.Errorf("failed to get issue #%d: %w", number, err)
+	}
+
+	issue := response.Repository.Issue
+	if issue.ID == "" {
+		return "", nil, fmt.Errorf("issue #%d not found in %s/%s", number, owner, repo)
+	}
+	if issue.Parent == nil {
+		return issue.ID, nil, nil
+	}
+
+	return issue.ID, &issueParent{
+		ID: issue.Parent.ID,
+		Ref: IssueReference{
+			Owner:  issue.Parent.Repository.Owner.Login,
+			Repo:   issue.Parent.Repository.Name,
+			Number: issue.Parent.Number,
+		},
+	}, nil
+}
+
+// sameRepo reports whether two references are in the same repository; GitHub
+// owner and repository names are case-insensitive
+func sameRepo(a, b IssueReference) bool {
+	return strings.EqualFold(a.Owner, b.Owner) && strings.EqualFold(a.Repo, b.Repo)
+}
+
+// formatIssueRef writes ref as #N when it is in the same repository as
+// base, and as owner/repo#N when it is not
+func formatIssueRef(ref, base IssueReference) string {
+	if sameRepo(ref, base) {
+		return fmt.Sprintf("#%d", ref.Number)
+	}
+	return fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number)
+}
+
+// checkCurrentParent decides, from the sub-issue's current parent, what the
+// add does. done is true when the issue is already under the requested
+// parent, whose node ID is requestedID, so there is nothing to change. An
+// error means the issue is under another parent and replaceParent is not
+// set, so nothing should be changed. References are written relative to
+// base, the repository the command runs against.
+func checkCurrentParent(sub, requested IssueReference, requestedID string, current *issueParent, replaceParent bool, base IssueReference) (done bool, err error) {
+	if current == nil {
+		return false, nil
+	}
+	// Node IDs, not names: renaming or transferring a repository changes its name
+	if current.ID == requestedID {
+		return true, nil
+	}
+	if replaceParent {
+		return false, nil
+	}
+	return false, fmt.Errorf("issue %s is already a sub-issue of %s; use --replace-parent to move it under %s",
+		formatIssueRef(sub, base), formatIssueRef(current.Ref, base), formatIssueRef(requested, base))
+}
+
+// alreadyMessage reports an issue that is already under the requested
+// parent, with references written relative to base
+func alreadyMessage(sub, parent, base IssueReference) string {
+	return fmt.Sprintf("✓ Issue %s is already a sub-issue of %s",
+		formatIssueRef(sub, base), formatIssueRef(parent, base))
+}
+
+// addedMessage describes a successful add, with references written relative
+// to base. previous is the parent the issue was moved from, or nil when it
+// had none.
+func addedMessage(sub, parent IssueReference, previous *IssueReference, base IssueReference) string {
+	if previous == nil {
+		return fmt.Sprintf("✓ Added issue %s as a sub-issue of %s",
+			formatIssueRef(sub, base), formatIssueRef(parent, base))
+	}
+	return fmt.Sprintf("✓ Moved issue %s from %s to %s",
+		formatIssueRef(sub, base), formatIssueRef(*previous, base), formatIssueRef(parent, base))
+}
+
+// addSubIssue links a sub-issue to a parent issue. With replaceParent, an
+// issue that already has a parent is moved from it.
+func addSubIssue(client *api.GraphQLClient, parentID, subIssueID string, replaceParent bool) error {
 	mutation := `
-		mutation($parentId: ID!, $subIssueId: ID!) {
+		mutation($parentId: ID!, $subIssueId: ID!, $replaceParent: Boolean) {
 			addSubIssue(input: {
 				issueId: $parentId,
-				subIssueId: $subIssueId
+				subIssueId: $subIssueId,
+				replaceParent: $replaceParent
 			}) {
-				issue {
-					number
-					title
-				}
 				subIssue {
-					number
-					title
+					id
 				}
 			}
 		}`
 	
 	variables := map[string]interface{}{
-		"parentId":   parentID,
-		"subIssueId": subIssueID,
+		"parentId":      parentID,
+		"subIssueId":    subIssueID,
+		"replaceParent": replaceParent,
 	}
 	
-	var response struct {
-		AddSubIssue struct {
-			Issue struct {
-				Number int    `json:"number"`
-				Title  string `json:"title"`
-			} `json:"issue"`
-			SubIssue struct {
-				Number int    `json:"number"`
-				Title  string `json:"title"`
-			} `json:"subIssue"`
-		} `json:"addSubIssue"`
-	}
+	// Only success matters; nothing in the response is read
+	var response struct{}
 	
 	err := client.Do(mutation, variables, &response)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to add sub-issue: %w", err)
+		return fmt.Errorf("failed to add sub-issue: %w", err)
 	}
-	
-	return response.AddSubIssue.Issue.Number, response.AddSubIssue.SubIssue.Number, nil
+
+	return nil
 }
 
 // getDefaultRepo gets the repository from current directory
@@ -286,7 +408,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(cmd.OutOrStderr(), "Getting sub-issue #%d from %s/%s...\n", 
 		subRef.Number, subRef.Owner, subRef.Repo)
 	
-	subID, err := getIssueNodeID(client, subRef.Owner, subRef.Repo, subRef.Number)
+	subID, currentParent, err := getIssueNodeIDAndParent(client, subRef.Owner, subRef.Repo, subRef.Number)
 	if err != nil {
 		// Check if it's a permission error
 		if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "403") {
@@ -296,23 +418,39 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	
+	// The check above compares names as typed, so it misses references that
+	// differ in case or use a renamed repository's old name; node IDs don't
+	if parentID == subID {
+		return fmt.Errorf("cannot add issue as its own sub-issue")
+	}
+
+	// Decide from the sub-issue's current parent before changing anything
+	base := IssueReference{Owner: defaultOwner, Repo: defaultRepo}
+	done, err := checkCurrentParent(*subRef, *parentRef, parentID, currentParent, replaceParentFlag, base)
+	if err != nil {
+		return err
+	}
+	if done {
+		fmt.Fprintln(cmd.OutOrStdout(), alreadyMessage(*subRef, *parentRef, base))
+		return nil
+	}
+
 	// Link the issues
 	fmt.Fprintf(cmd.OutOrStderr(), "Linking issues...\n")
-	parentNum, subNum, err := addSubIssue(client, parentID, subID)
-	if err != nil {
+	if err := addSubIssue(client, parentID, subID, replaceParentFlag); err != nil {
 		// Check for specific error cases
 		if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "403") {
 			return fmt.Errorf("insufficient permissions to modify issues in this repository")
 		}
-		if strings.Contains(err.Error(), "already") {
-			return fmt.Errorf("issue #%d is already a sub-issue of #%d", 
-				subRef.Number, parentRef.Number)
-		}
 		return err
 	}
-	
-	// Success message
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Added issue #%d as a sub-issue of #%d\n", subNum, parentNum)
+
+	// Success message; after the check, currentParent is set only if it was replaced
+	var previous *IssueReference
+	if currentParent != nil {
+		previous = &currentParent.Ref
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), addedMessage(*subRef, *parentRef, previous, base))
 	
 	_ = ctx // Use context if needed in future
 	return nil
