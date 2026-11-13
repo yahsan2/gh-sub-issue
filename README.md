@@ -49,6 +49,9 @@ gh sub-issue add https://github.com/owner/repo/issues/123 456
 
 # Cross-repository (add existing issue 456 as sub-issue of parent 123)
 gh sub-issue add 123 456 --repo owner/repo
+
+# Move issue 456 from its current parent to parent 123
+gh sub-issue add 123 456 --replace-parent
 ```
 
 ### Create a new sub-issue
@@ -140,8 +143,9 @@ Arguments:
   sub-issue       Sub-issue number or URL to be added
 
 Flags:
-  -R, --repo      Repository in OWNER/REPO format
-  -h, --help      Show help for command
+  -R, --repo            Repository in OWNER/REPO format
+      --replace-parent  Move the issue from its current parent, if it has one
+  -h, --help            Show help for command
 ```
 
 ### `gh sub-issue create`
